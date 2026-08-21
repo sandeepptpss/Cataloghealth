@@ -623,55 +623,58 @@ export default function Dashboard() {
           >
             <Box padding="400">
               <BlockStack gap="300">
-                <InlineStack gap="300" align="space-between" blockAlign="center">
-                  <Box style={{ flex: 1 }}>
-                    <TextField
-                      label="Search issues"
-                      labelHidden
-                      placeholder="Search issues by title, description, SKU, field name or severity..."
-                      value={searchInput}
-                      onChange={setSearchInput}
-                      prefix={<Icon source={SearchIcon} />}
-                      suffix={isLoading ? <Spinner size="small" /> : null}
-                      clearButton
-                      onClearButtonClick={() => {
-                        setSearchInput("");
-                        updateParams({ q: null, page: 1 });
-                      }}
-                      autoComplete="off"
-                    />
-                  </Box>
-                  <InlineStack gap="200" blockAlign="center">
-                    <Button
-                      size="medium"
-                      tone={tabId === "critical" ? "critical" : undefined}
-                      variant={tabId === "critical" ? "primary" : "secondary"}
-                      onClick={() => updateParams({ tab: "critical", page: 1 })}
-                    >
-                      Critical Only ({criticalIssuesCount})
-                    </Button>
-                    <Button
-                      size="medium"
-                      onClick={() => updateParams({ tab: "warning", page: 1 })}
-                      variant={tabId === "warning" ? "primary" : "secondary"}
-                    >
-                      Warnings ({warningIssuesCount})
-                    </Button>
-                    {(searchInput || tabId !== "all") && (
+                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                  <InlineStack gap="300" align="space-between" blockAlign="center">
+                    <Box style={{ flex: 1 }}>
+                      <TextField
+                        label="Search issues"
+                        labelHidden
+                        placeholder="Search issues by title, product name, SKU, field name or severity..."
+                        value={searchInput}
+                        onChange={setSearchInput}
+                        prefix={<Icon source={SearchIcon} />}
+                        suffix={isLoading ? <Spinner size="small" /> : null}
+                        clearButton
+                        onClearButtonClick={() => {
+                          setSearchInput("");
+                          updateParams({ q: null, page: 1 });
+                        }}
+                        autoComplete="off"
+                      />
+                    </Box>
+                    <InlineStack gap="200" blockAlign="center">
                       <Button
                         size="medium"
-                        tone="critical"
-                        variant="tertiary"
-                        onClick={() => {
-                          setSearchInput("");
-                          updateParams({ tab: "all", q: null, page: 1 });
-                        }}
+                        tone={tabId === "critical" ? "critical" : undefined}
+                        variant={tabId === "critical" ? "primary" : "secondary"}
+                        onClick={() => updateParams({ tab: "critical", page: 1 })}
                       >
-                        Reset Filters
+                        Critical Only ({criticalIssuesCount})
                       </Button>
-                    )}
+                      <Button
+                        size="medium"
+                        tone={tabId === "warning" ? "caution" : undefined}
+                        variant={tabId === "warning" ? "primary" : "secondary"}
+                        onClick={() => updateParams({ tab: "warning", page: 1 })}
+                      >
+                        Warnings ({warningIssuesCount})
+                      </Button>
+                      {(searchInput || tabId !== "all") && (
+                        <Button
+                          size="medium"
+                          tone="critical"
+                          variant="tertiary"
+                          onClick={() => {
+                            setSearchInput("");
+                            updateParams({ tab: "all", q: null, page: 1 });
+                          }}
+                        >
+                          Reset Filters
+                        </Button>
+                      )}
+                    </InlineStack>
                   </InlineStack>
-                </InlineStack>
+                </Box>
 
                 {(searchInput || tabId !== "all") && (
                   <InlineStack gap="200" blockAlign="center">
