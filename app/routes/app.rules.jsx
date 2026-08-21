@@ -215,7 +215,8 @@ export default function ValidationRules() {
 
   return (
     <Page
-      title="Validation Rules & Requirements"
+      fullWidth
+      title="Validation Rules Engine"
       subtitle="Configure audit rules, priorities, and custom required fields"
       primaryAction={{
         content: "Add New Audit Rule",

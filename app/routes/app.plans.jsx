@@ -175,6 +175,7 @@ export default function Plans() {
 
   return (
     <Page
+      fullWidth
       title="Plans & Merchant Support"
       subtitle="Select the ideal monitoring tier for your Shopify store catalog"
       primaryAction={{

@@ -268,6 +268,7 @@ export default function AdminDashboard() {
 
   return (
     <Page
+      fullWidth
       title="App Admin Dashboard"
       subtitle={`Administrator Portal • Pre-Granted Access for ${ADMIN_EMAIL} (${ADMIN_SHOP})`}
     >

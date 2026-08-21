@@ -17,6 +17,7 @@ import {
   Box,
   Divider,
   Pagination,
+  Select,
 } from "@shopify/polaris";
 import {
   CheckCircleIcon,
@@ -59,6 +60,8 @@ export const loader = async ({ request }) => {
     ? url.searchParams.get("tab")
     : "all";
   const query = (url.searchParams.get("q") || "").trim();
+  const limitParsed = parseInt(url.searchParams.get("limit") || "10", 10);
+  const limit = [10, 20, 50, 100].includes(limitParsed) ? limitParsed : 10;
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10) || 1);
 
   const activeTab = TABS.find((t) => t.id === tabId);
@@ -117,8 +120,8 @@ export const loader = async ({ request }) => {
         variant: { select: { title: true, sku: true } },
       },
       orderBy: { createdAt: "desc" },
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
+      skip: (page - 1) * limit,
+      take: limit,
     }),
     getQueueSnapshot(store.id),
   ]);
@@ -141,7 +144,7 @@ export const loader = async ({ request }) => {
     tabId,
     query,
     page,
-    pageSize: PAGE_SIZE,
+    pageSize: limit,
   };
 };
 
@@ -371,6 +374,7 @@ export default function Dashboard() {
 
   return (
     <Page
+      fullWidth
       title="Catalog Health Monitor"
       subtitle="Automated product catalog audits, quality metrics & issue tracking"
       primaryAction={{
@@ -590,9 +594,31 @@ export default function Dashboard() {
                       <Divider />
                       <Box paddingBlockStart="300">
                         <InlineStack align="space-between" blockAlign="center">
-                          <Text variant="bodySm" tone="subdued">
-                            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredCount)} of {filteredCount} issues
-                          </Text>
+                          <InlineStack gap="400" blockAlign="center">
+                            <Text variant="bodySm" tone="subdued">
+                              Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, filteredCount)} of {filteredCount} issues
+                            </Text>
+                            <InlineStack gap="200" blockAlign="center">
+                              <Text variant="bodySm" tone="subdued">
+                                Per page:
+                              </Text>
+                              <div style={{ width: "130px" }}>
+                                <Select
+                                  label="Items per page"
+                                  labelHidden
+                                  options={[
+                                    { label: "10", value: "10" },
+                                    { label: "20", value: "20" },
+                                    { label: "50", value: "50" },
+                                    { label: "100", value: "100" },
+                                  ]}
+                                  value={String(pageSize)}
+                                  onChange={(val) => updateParams({ limit: val, page: 1 })}
+                                />
+                              </div>
+                            </InlineStack>
+                          </InlineStack>
+
                           <Pagination
                             hasPrevious={page > 1}
                             onPrevious={() => updateParams({ page: page - 1 })}
