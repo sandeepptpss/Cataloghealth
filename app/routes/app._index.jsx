@@ -61,8 +61,8 @@ export const loader = async ({ request }) => {
     ? url.searchParams.get("tab")
     : "all";
   const query = (url.searchParams.get("q") || "").trim();
-  const limitParsed = parseInt(url.searchParams.get("limit") || "10", 10);
-  const limit = [10, 20, 50, 100].includes(limitParsed) ? limitParsed : 10;
+  const limitParsed = parseInt(url.searchParams.get("limit") || "20", 10);
+  const limit = [10, 20, 50, 100].includes(limitParsed) ? limitParsed : 20;
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10) || 1);
 
   const activeTab = TABS.find((t) => t.id === tabId);
@@ -469,8 +469,13 @@ export default function Dashboard() {
                 <Text variant="headingMd" as="h3">
                   Catalog Overview Metrics
                 </Text>
-                <InlineStack gap="600" align="space-between">
-                  <Box>
+                <InlineStack gap="300" wrap={false} align="space-between">
+                  <Box
+                    padding="300"
+                    borderRadius="200"
+                    background="bg-surface-secondary"
+                    style={{ flex: 1, textAlign: "center" }}
+                  >
                     <Text variant="headingLg" as="p" fontWeight="bold">
                       {totalProducts}
                     </Text>
@@ -479,7 +484,12 @@ export default function Dashboard() {
                     </Text>
                   </Box>
 
-                  <Box>
+                  <Box
+                    padding="300"
+                    borderRadius="200"
+                    background="bg-surface-secondary"
+                    style={{ flex: 1, textAlign: "center" }}
+                  >
                     <Text
                       variant="headingLg"
                       as="p"
@@ -489,13 +499,16 @@ export default function Dashboard() {
                       {productsWithIssues}
                     </Text>
                     <Text variant="bodySm" tone="subdued">
-                      Products with Issues
+                      Products w/ Issues
                     </Text>
                   </Box>
 
                   <Box
+                    padding="300"
+                    borderRadius="200"
+                    background="bg-surface-secondary"
                     onClick={() => updateParams({ tab: "critical", page: 1 })}
-                    style={{ cursor: "pointer", padding: "4px 8px", borderRadius: "8px" }}
+                    style={{ flex: 1, textAlign: "center", cursor: "pointer", border: "1px solid rgba(224, 0, 0, 0.15)" }}
                     title="Click to view Critical Issues"
                   >
                     <Text variant="headingLg" as="p" fontWeight="bold" tone="critical">
@@ -507,8 +520,11 @@ export default function Dashboard() {
                   </Box>
 
                   <Box
+                    padding="300"
+                    borderRadius="200"
+                    background="bg-surface-secondary"
                     onClick={() => updateParams({ tab: "warning", page: 1 })}
-                    style={{ cursor: "pointer", padding: "4px 8px", borderRadius: "8px" }}
+                    style={{ flex: 1, textAlign: "center", cursor: "pointer", border: "1px solid rgba(235, 140, 0, 0.15)" }}
                     title="Click to view Warning Issues"
                   >
                     <Text variant="headingLg" as="p" fontWeight="bold" tone="caution">
@@ -520,8 +536,11 @@ export default function Dashboard() {
                   </Box>
 
                   <Box
+                    padding="300"
+                    borderRadius="200"
+                    background="bg-surface-secondary"
                     onClick={() => updateParams({ tab: "resolved", page: 1 })}
-                    style={{ cursor: "pointer", padding: "4px 8px", borderRadius: "8px" }}
+                    style={{ flex: 1, textAlign: "center", cursor: "pointer", border: "1px solid rgba(0, 160, 0, 0.15)" }}
                     title="Click to view Resolved Issues"
                   >
                     <Text variant="headingLg" as="p" fontWeight="bold" tone="success">
@@ -562,19 +581,22 @@ export default function Dashboard() {
                     borderRadius="200"
                     background="bg-surface-secondary"
                     onClick={() => updateParams({ tab: alert.criticalCount > 0 ? "critical" : "all", page: 1 })}
-                    style={{ cursor: "pointer" }}
+                    style={{
+                      cursor: "pointer",
+                      borderLeft: alert.criticalCount > 0 ? "4px solid var(--p-color-bg-fill-critical)" : "4px solid var(--p-color-bg-fill-info)",
+                    }}
                     title="Click to filter issues for this alert"
                   >
                     <BlockStack gap="100">
                       <InlineStack gap="200" blockAlign="center" align="space-between">
                         <InlineStack gap="200" blockAlign="center">
                           <Badge tone={alert.criticalCount > 0 ? "critical" : "info"}>
-                            {alert.type === "CRITICAL_ALERT" ? "Critical Alert" : "Daily Alert"}
+                            {alert.type === "CRITICAL_ALERT" ? "Critical Alert" : "Daily Digest"}
                           </Badge>
                           <Text variant="bodyMd" fontWeight="bold">
                             {alert.title}
                           </Text>
-                          <Badge tone={alert.status === "SENT" ? "success" : undefined}>
+                          <Badge tone={alert.status === "SENT" ? "success" : "attention"}>
                             {alert.status}
                           </Badge>
                         </InlineStack>
@@ -583,7 +605,7 @@ export default function Dashboard() {
                         </Button>
                       </InlineStack>
                       <Text variant="bodySm" tone="subdued">
-                        {new Date(alert.createdAt).toLocaleString()}
+                        Logged on: {new Date(alert.createdAt).toLocaleString()}
                       </Text>
                     </BlockStack>
                   </Box>
