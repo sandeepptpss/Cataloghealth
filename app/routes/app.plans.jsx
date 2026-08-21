@@ -18,10 +18,12 @@ import {
   Icon,
   Grid,
 } from "@shopify/polaris";
-import { CheckIcon, EmailIcon, CheckCircleIcon } from "@shopify/polaris-icons";
+import { CheckIcon, EmailIcon, ClockIcon, CheckCircleIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { ensureStoreRecord } from "../services/syncEngine.server.js";
+
+const ADMIN_EMAIL = "sandeepptpss@gmail.com";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -56,7 +58,7 @@ export const action = async ({ request }) => {
   if (actionType === "SUBMIT_SUPPORT_TICKET") {
     const subject = formData.get("subject");
     const message = formData.get("message");
-    const merchantEmail = formData.get("merchantEmail") || "merchant@store.com";
+    const merchantEmail = formData.get("merchantEmail") || ADMIN_EMAIL;
 
     if (subject && message) {
       await prisma.supportTicket.create({
@@ -74,7 +76,7 @@ export const action = async ({ request }) => {
         data: { adminEmail: merchantEmail },
       });
 
-      return { success: true, message: "Support ticket sent to sandeepptpss@gmail.com successfully!" };
+      return { success: true, message: "Support ticket sent successfully!" };
     }
   }
 
@@ -90,15 +92,18 @@ export default function Plans() {
   const [supportModalOpen, setSupportModalOpen] = useState(false);
   const [supportSubject, setSupportSubject] = useState("");
   const [supportMessage, setSupportMessage] = useState("");
-  const [contactEmail, setContactEmail] = useState(store.adminEmail || "sandeepptpss@gmail.com");
+  const [contactEmail, setContactEmail] = useState(store.adminEmail || ADMIN_EMAIL);
   const [feedbackBanner, setFeedbackBanner] = useState("");
 
-  const handleSelectPlan = (planName) => {
-    submit({ actionType: "SELECT_PLAN", plan: planName }, { method: "post" });
-    setFeedbackBanner(`Switched to ${planName} Plan!`);
+  const currentPlanId = (store.plan || "free").toLowerCase();
+
+  const handleSelectPlan = (planId, planName) => {
+    submit({ actionType: "SELECT_PLAN", plan: planId }, { method: "post" });
+    setFeedbackBanner(`Switched to ${planName}!`);
   };
 
   const handleSendSupportTicket = () => {
+    if (!supportSubject.trim() || !supportMessage.trim()) return;
     submit(
       {
         actionType: "SUBMIT_SUPPORT_TICKET",
@@ -111,7 +116,7 @@ export default function Plans() {
     setSupportModalOpen(false);
     setSupportSubject("");
     setSupportMessage("");
-    setFeedbackBanner("Support ticket submitted! Support team (sandeepptpss@gmail.com) will get back to you shortly.");
+    setFeedbackBanner(`Support ticket submitted to ${ADMIN_EMAIL}. We will respond shortly.`);
   };
 
   const plans = [
@@ -120,12 +125,13 @@ export default function Plans() {
       name: "Free Tier",
       price: "$0",
       period: "/month",
-      badge: "Starter",
+      badge: "Starter Plan",
       badgeTone: "subdued",
-      description: "Essential catalog quality checks for growing Shopify stores.",
+      isPopular: false,
+      description: "Essential catalog quality audits for growing Shopify stores.",
       features: [
         "Audit up to 250 products",
-        "Basic Missing Image & SKU checks",
+        "Missing Image & SKU checks",
         "Price & Barcode validation",
         "Weekly manual catalog scan",
         "Standard Email Support",
@@ -136,15 +142,16 @@ export default function Plans() {
       name: "Growth Plan",
       price: "$19",
       period: "/month",
-      badge: "Most Popular",
+      badge: "MOST POPULAR",
       badgeTone: "highlight",
-      description: "Automated daily catalog monitoring and metafield compliance.",
+      isPopular: true,
+      description: "Automated daily catalog monitoring and metafield compliance engine.",
       features: [
         "Audit up to 2,500 products",
-        "Daily automated catalog audits",
+        "Daily automated catalog scans",
         "Required Metafield validation",
         "Duplicate SKU detection engine",
-        "Priority Email Support (24h response)",
+        "Priority Support (24h SLA)",
       ],
     },
     {
@@ -152,15 +159,16 @@ export default function Plans() {
       name: "Pro Enterprise",
       price: "$49",
       period: "/month",
-      badge: "Advanced",
+      badge: "Unlimited",
       badgeTone: "success",
-      description: "Unlimited product audits, custom priorities & auto-fix rules.",
+      isPopular: false,
+      description: "Unlimited product audits, custom priority builder & auto-fix rules.",
       features: [
         "Unlimited product audits",
         "Real-time webhook sync & scans",
         "Custom rule priority builder",
         "Auto-fix safety layer",
-        "Dedicated Support (sandeepptpss@gmail.com)",
+        "Dedicated Admin Support",
       ],
     },
   ];
@@ -168,45 +176,57 @@ export default function Plans() {
   return (
     <Page
       title="Plans & Merchant Support"
-      subtitle="Select your store subscription plan and access direct merchant support"
+      subtitle="Select the ideal monitoring tier for your Shopify store catalog"
       primaryAction={{
-        content: "Contact Support",
+        content: "Submit Support Ticket",
         icon: EmailIcon,
         onClick: () => setSupportModalOpen(true),
       }}
     >
-      <BlockStack gap="5">
+      <BlockStack gap="500">
         {feedbackBanner && (
           <Banner tone="success" onDismiss={() => setFeedbackBanner("")}>
             <p>{feedbackBanner}</p>
           </Banner>
         )}
 
+        {/* Top Intro Banner */}
+        <Banner tone="info" title="Flexible Subscription Plans">
+          <p>
+            Scale your product catalog quality assurance with automated daily scanning, required metafield enforcement, and real-time webhook updates. Current active store plan: <strong>{currentPlanId.toUpperCase()}</strong>.
+          </p>
+        </Banner>
+
         {/* Pricing Cards Grid */}
         <Grid>
           {plans.map((plan) => {
-            const isCurrentPlan = store.plan.toLowerCase() === plan.id;
+            const isCurrent = currentPlanId === plan.id;
             return (
               <Grid.Cell
                 key={plan.id}
                 columnSpan={{ xs: 6, sm: 6, md: 4, lg: 4, xl: 4 }}
               >
-                <Card padding="500">
-                  <BlockStack gap="4">
-                    <InlineStack align="space-between">
+                <Card
+                  padding="500"
+                  background={plan.isPopular ? "bg-surface-secondary" : undefined}
+                >
+                  <BlockStack gap="400">
+                    <InlineStack align="space-between" blockAlign="center">
                       <Text variant="headingLg" as="h3" fontWeight="bold">
                         {plan.name}
                       </Text>
-                      <Badge tone={isCurrentPlan ? "success" : plan.badgeTone}>
-                        {isCurrentPlan ? "Current Plan" : plan.badge}
-                      </Badge>
+                      {isCurrent ? (
+                        <Badge tone="success">ACTIVE PLAN</Badge>
+                      ) : (
+                        <Badge tone={plan.badgeTone}>{plan.badge}</Badge>
+                      )}
                     </InlineStack>
 
-                    <InlineStack gap="1" align="baseline">
+                    <InlineStack gap="100" align="baseline">
                       <Text variant="heading2xl" as="span" fontWeight="bold">
                         {plan.price}
                       </Text>
-                      <Text variant="bodyMd" tone="subdued">
+                      <Text variant="bodyMd" tone="subdued" as="span">
                         {plan.period}
                       </Text>
                     </InlineStack>
@@ -217,12 +237,12 @@ export default function Plans() {
 
                     <Divider />
 
-                    <BlockStack gap="2">
-                      <Text variant="headingSm" as="h4">
+                    <BlockStack gap="200">
+                      <Text variant="headingSm" as="h4" fontWeight="bold">
                         Included Features:
                       </Text>
                       {plan.features.map((feat, idx) => (
-                        <InlineStack key={idx} gap="2" align="start">
+                        <InlineStack key={idx} gap="200" align="start" blockAlign="center">
                           <Icon source={CheckIcon} tone="success" />
                           <Text variant="bodySm">{feat}</Text>
                         </InlineStack>
@@ -232,11 +252,12 @@ export default function Plans() {
                     <Box paddingBlockStart="300">
                       <Button
                         fullWidth
-                        variant={isCurrentPlan ? "secondary" : "primary"}
-                        disabled={isCurrentPlan || isLoading}
-                        onClick={() => handleSelectPlan(plan.name)}
+                        size="large"
+                        variant={plan.isPopular && !isCurrent ? "primary" : "secondary"}
+                        disabled={isCurrent || isLoading}
+                        onClick={() => handleSelectPlan(plan.id, plan.name)}
                       >
-                        {isCurrentPlan ? "Active Plan" : `Select ${plan.name}`}
+                        {isCurrent ? "Current Active Plan" : `Select ${plan.name}`}
                       </Button>
                     </Box>
                   </BlockStack>
@@ -246,24 +267,28 @@ export default function Plans() {
           })}
         </Grid>
 
-        {/* Support Section */}
+        {/* Merchant Support Section */}
         <Card padding="500">
-          <BlockStack gap="4">
-            <InlineStack align="space-between">
-              <BlockStack gap="1">
-                <Text variant="headingMd" as="h3">
-                  Merchant Support & Escalations
-                </Text>
+          <BlockStack gap="400">
+            <InlineStack align="space-between" blockAlign="center">
+              <BlockStack gap="100">
+                <InlineStack gap="200" blockAlign="center">
+                  <Icon source={CheckCircleIcon} tone="success" />
+                  <Text variant="headingMd" as="h3">
+                    Merchant Support & Escalations
+                  </Text>
+                </InlineStack>
                 <Text variant="bodySm" tone="subdued">
-                  Need help with custom rules, audit configurations, or account setups? Contact administrator.
+                  Direct support assistance for custom audit rules, metafield setup, or plan upgrades.
                 </Text>
               </BlockStack>
+
               <Button
                 variant="primary"
                 icon={EmailIcon}
                 onClick={() => setSupportModalOpen(true)}
               >
-                Submit Support Ticket
+                Open Support Ticket
               </Button>
             </InlineStack>
 
@@ -271,46 +296,54 @@ export default function Plans() {
 
             <Grid>
               <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
-                <Card padding="400">
-                  <BlockStack gap="2">
-                    <Text variant="headingSm" as="h4">
-                      Direct Email Support
+                <Card padding="400" background="bg-surface-secondary">
+                  <BlockStack gap="200">
+                    <InlineStack gap="200" blockAlign="center">
+                      <Icon source={EmailIcon} tone="highlight" />
+                      <Text variant="headingSm" as="h4">
+                        Direct Email Support
+                      </Text>
+                    </InlineStack>
+                    <Text variant="bodySm">
+                      Dedicated Support Email: <strong>{ADMIN_EMAIL}</strong>
                     </Text>
                     <Text variant="bodySm" tone="subdued">
-                      App Lead: sandeepptpss@gmail.com
-                    </Text>
-                    <Text variant="bodySm" tone="subdued">
-                      Admin Store: quickstart-749ac396.myshopify.com
+                      Managed Store Domain: {store.shopDomain}
                     </Text>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
+
               <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
-                <Card padding="400">
-                  <BlockStack gap="2">
-                    <Text variant="headingSm" as="h4">
-                      Support Response SLA
+                <Card padding="400" background="bg-surface-secondary">
+                  <BlockStack gap="200">
+                    <InlineStack gap="200" blockAlign="center">
+                      <Icon source={ClockIcon} tone="highlight" />
+                      <Text variant="headingSm" as="h4">
+                        Guaranteed SLA Response
+                      </Text>
+                    </InlineStack>
+                    <Text variant="bodySm">
+                      Pro & Growth Subscribers: <strong>2 - 4 hours response SLA</strong>
                     </Text>
                     <Text variant="bodySm" tone="subdued">
-                      Pro & Growth Plan inquiries answered in 2-4 hours.
-                    </Text>
-                    <Text variant="bodySm" tone="subdued">
-                      Free Plan queries answered within 24 hours.
+                      Free Tier Subscribers: Within 24 hours
                     </Text>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
             </Grid>
 
+            {/* Support Ticket History */}
             {supportTickets.length > 0 && (
-              <BlockStack gap="3">
+              <BlockStack gap="300">
                 <Text variant="headingSm" as="h4">
-                  Your Recent Support Tickets ({supportTickets.length})
+                  Your Support Ticket History ({supportTickets.length})
                 </Text>
                 {supportTickets.map((ticket) => (
                   <Card key={ticket.id} padding="300">
-                    <InlineStack align="space-between">
-                      <BlockStack gap="1">
+                    <InlineStack align="space-between" blockAlign="start">
+                      <BlockStack gap="100">
                         <Text variant="bodyMd" fontWeight="bold">
                           {ticket.subject}
                         </Text>
@@ -318,9 +351,10 @@ export default function Plans() {
                           {ticket.message}
                         </Text>
                         <Text variant="bodySm" tone="subdued">
-                          Sent on: {new Date(ticket.createdAt).toLocaleString()}
+                          Submitted on: {new Date(ticket.createdAt).toLocaleString()}
                         </Text>
                       </BlockStack>
+
                       <Badge tone={ticket.status === "OPEN" ? "attention" : "success"}>
                         {ticket.status}
                       </Badge>
@@ -333,14 +367,16 @@ export default function Plans() {
         </Card>
       </BlockStack>
 
+      {/* Support Ticket Modal */}
       <Modal
         open={supportModalOpen}
         onClose={() => setSupportModalOpen(false)}
-        title="Contact App Support"
+        title="Submit Merchant Support Inquiry"
         primaryAction={{
-          content: "Submit Ticket to sandeepptpss@gmail.com",
+          content: "Send Support Ticket",
           onClick: handleSendSupportTicket,
           loading: isLoading,
+          disabled: !supportSubject.trim() || !supportMessage.trim(),
         }}
         secondaryActions={[
           {
@@ -351,26 +387,28 @@ export default function Plans() {
       >
         <Modal.Section>
           <FormLayout>
+            <Banner tone="info">
+              <p>Your support ticket will be sent directly to administrator <strong>{ADMIN_EMAIL}</strong>.</p>
+            </Banner>
             <TextField
-              label="Your Contact Email"
+              label="Contact Email"
               value={contactEmail}
               onChange={setContactEmail}
               autoComplete="email"
-              placeholder="sandeepptpss@gmail.com"
             />
             <TextField
-              label="Subject"
+              label="Subject / Inquiry Topic"
               value={supportSubject}
               onChange={setSupportSubject}
-              placeholder="Enter inquiry topic..."
+              placeholder="e.g. Need assistance setting up custom metafield audit rules"
               autoComplete="off"
             />
             <TextField
-              label="Message Description"
+              label="Detailed Message"
               value={supportMessage}
               onChange={setSupportMessage}
               multiline={4}
-              placeholder="Describe your request..."
+              placeholder="Please explain your question or issue in detail..."
               autoComplete="off"
             />
           </FormLayout>
