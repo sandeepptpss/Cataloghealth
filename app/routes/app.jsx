@@ -1,7 +1,7 @@
 import { Outlet, useLoaderData, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-react-router/react";
-import { AppProvider as PolarisProvider } from "@shopify/polaris";
+import { AppProvider as PolarisProvider, Frame } from "@shopify/polaris";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 import enTranslations from "@shopify/polaris/locales/en.json";
 import { authenticate } from "../shopify.server";
@@ -28,15 +28,17 @@ export default function App() {
   return (
     <ShopifyAppProvider embedded apiKey={apiKey}>
       <PolarisProvider i18n={enTranslations}>
-        <ui-nav-menu>
-          <a href="/app" rel="home">Catalog Health</a>
-          <a href="/app">Dashboard</a>
-          <a href="/app/rules">Validation Rules</a>
-          <a href="/app/scans">Scan Logs</a>
-          <a href="/app/plans">Plans</a>
-          {isAdmin && <a href="/app/admin">Admin Portal</a>}
-        </ui-nav-menu>
-        <Outlet />
+        <Frame>
+          <ui-nav-menu>
+            <a href="/app" rel="home">Catalog Health</a>
+            <a href="/app">Dashboard</a>
+            <a href="/app/rules">Validation Rules</a>
+            <a href="/app/scans">Scan Logs</a>
+            <a href="/app/plans">Plans</a>
+            {isAdmin && <a href="/app/admin">Admin Portal</a>}
+          </ui-nav-menu>
+          <Outlet />
+        </Frame>
       </PolarisProvider>
     </ShopifyAppProvider>
   );

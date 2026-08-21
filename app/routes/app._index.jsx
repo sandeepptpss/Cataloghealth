@@ -37,6 +37,8 @@ import {
   getQueueSnapshot,
   JOB_PRIORITY,
 } from "../services/scanQueue.server.js";
+import { getPlanConfig } from "../services/planEngine.server.js";
+import { autoFixIssue } from "../services/autoFixEngine.server.js";
 
 const PAGE_SIZE = 10;
 
@@ -135,8 +137,11 @@ export const loader = async ({ request }) => {
     getQueueSnapshot(store.id),
   ]);
 
+  const planConfig = getPlanConfig(store.plan);
+
   return {
     store,
+    planConfig,
     totalProducts,
     productsWithIssues,
     openIssuesCount,
@@ -158,10 +163,21 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
   const formData = await request.formData();
   const actionType = formData.get("actionType");
+
+  if (actionType === "AUTO_FIX_ISSUE") {
+    const issueId = formData.get("issueId");
+    if (!issueId) return { success: false, error: "Issue ID is required." };
+    try {
+      const res = await autoFixIssue(admin, store.id, issueId);
+      return { success: true, message: res.message };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
 
   if (actionType === "RUN_SCAN") {
     // Queue it: a full catalog crawl cannot run inside an HTTP request without

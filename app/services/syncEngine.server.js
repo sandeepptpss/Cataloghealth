@@ -2,6 +2,7 @@ import prisma from "../db.server.js";
 import { normalizeSku, validateProductData } from "./validationEngine.server.js";
 import { syncProductIssues, updateStoreHealthScore } from "./issueEngine.server.js";
 import { notifyCriticalIfNeeded, deliverPendingNotifications } from "./alertEngine.server.js";
+import { getPlanConfig } from "./planEngine.server.js";
 
 // Products fetched per Admin API page. Kept modest because each node also pulls
 // variants, media and metafields, and the GraphQL cost budget is shared.
@@ -249,15 +250,22 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL", opti
     let processedProducts = scan.processedProducts || 0;
     let failedProducts = scan.failedProducts || 0;
 
+    const store = await prisma.store.findUnique({ where: { id: storeId } });
+    const planConfig = getPlanConfig(store?.plan);
+    const maxProducts = planConfig.maxProducts;
+
     const rules = await prisma.validationRule.findMany({
       where: { storeId, isEnabled: true },
     });
 
     // ---- Pass 1: sync catalog data from Shopify, batch by batch ----
-    while (hasNextPage) {
+    while (hasNextPage && processedProducts < maxProducts) {
+      const remainingLimit = maxProducts - processedProducts;
+      const fetchCount = Math.min(PRODUCTS_PAGE_SIZE, remainingLimit);
+
       const json = await graphqlWithRetry(admin, PRODUCTS_QUERY, {
         variables: {
-          first: PRODUCTS_PAGE_SIZE,
+          first: fetchCount,
           after: endCursor,
         },
       });
@@ -266,6 +274,10 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL", opti
       if (!productsData) break;
 
       for (const edge of productsData.edges || []) {
+        if (processedProducts >= maxProducts) {
+          hasNextPage = false;
+          break;
+        }
         const p = edge.node;
         try {
           await upsertProductRecord(storeId, p);
@@ -315,6 +327,7 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL", opti
           collections: prod.collections,
           rules,
           skuCountMap,
+          storePlan: store?.plan || "free",
         });
 
         // The store score is recomputed once after the loop instead of once per
@@ -368,6 +381,7 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL", opti
  * counterpart instead of leaving it open until the next full scan (spec #11).
  */
 export async function syncAndScanSingleProduct(admin, storeId, shopifyProductId) {
+  const store = await prisma.store.findUnique({ where: { id: storeId } });
   const rules = await prisma.validationRule.findMany({
     where: { storeId, isEnabled: true },
   });
@@ -408,6 +422,7 @@ export async function syncAndScanSingleProduct(admin, storeId, shopifyProductId)
     collections: fullProd.collections,
     rules,
     skuCountMap,
+    storePlan: store?.plan || "free",
   });
 
   await syncProductIssues(storeId, fullProd.id, detectedIssues, {

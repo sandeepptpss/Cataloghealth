@@ -18,10 +18,13 @@ import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { ensureStoreRecord, syncAndScanSingleProduct } from "../services/syncEngine.server.js";
 import { calculateAndSaveHealthScores } from "../services/issueEngine.server.js";
+import { getPlanConfig } from "../services/planEngine.server.js";
+import { autoFixIssue } from "../services/autoFixEngine.server.js";
 
 export const loader = async ({ params, request }) => {
   const { session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
+  const planConfig = getPlanConfig(store.plan);
   const productId = params.id;
 
   const product = await prisma.product.findUnique({
@@ -40,7 +43,7 @@ export const loader = async ({ params, request }) => {
     throw new Response("Product Not Found", { status: 404 });
   }
 
-  return { store, product };
+  return { store, product, planConfig };
 };
 
 export const action = async ({ params, request }) => {
@@ -50,6 +53,17 @@ export const action = async ({ params, request }) => {
 
   const formData = await request.formData();
   const actionType = formData.get("actionType");
+
+  if (actionType === "AUTO_FIX_ISSUE") {
+    const issueId = formData.get("issueId");
+    if (!issueId) return { success: false, error: "Issue ID is required." };
+    try {
+      const res = await autoFixIssue(admin, store.id, issueId);
+      return { success: true, message: res.message };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
 
   if (actionType === "RESCAN_PRODUCT") {
     // Scoped by storeId: never rescan a product belonging to another shop.
@@ -122,7 +136,7 @@ export const action = async ({ params, request }) => {
 };
 
 export default function ProductHealthDetail() {
-  const { store, product } = useLoaderData();
+  const { store, product, planConfig } = useLoaderData();
   const submit = useSubmit();
   const navigation = useNavigation();
   const isLoading = navigation.state !== "idle";
@@ -137,6 +151,14 @@ export default function ProductHealthDetail() {
 
   const handleUnignore = (issueId) => {
     submit({ actionType: "UNIGNORE_ISSUE", issueId }, { method: "post" });
+  };
+
+  const handleAutoFix = (issueId) => {
+    if (!planConfig.autoFix) {
+      alert("Auto-Fix Resolution Engine requires Plus Enterprise plan subscription ($49/mo). Please upgrade your plan.");
+      return;
+    }
+    submit({ actionType: "AUTO_FIX_ISSUE", issueId }, { method: "post" });
   };
 
   const issueRows = product.issues.map((issue) => [
@@ -174,9 +196,18 @@ export default function ProductHealthDetail() {
     </Badge>,
     <InlineStack key={`act-${issue.id}`} gap="200">
       {issue.status === "OPEN" && (
-        <Button size="micro" tone="critical" onClick={() => handleIgnore(issue.id)}>
-          Ignore
-        </Button>
+        <>
+          <Button
+            size="micro"
+            tone="success"
+            onClick={() => handleAutoFix(issue.id)}
+          >
+            Auto-Fix Engine ⚡
+          </Button>
+          <Button size="micro" tone="critical" onClick={() => handleIgnore(issue.id)}>
+            Ignore
+          </Button>
+        </>
       )}
       {issue.status === "IGNORED" && (
         <Button size="micro" onClick={() => handleUnignore(issue.id)}>

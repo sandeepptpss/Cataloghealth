@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLoaderData, useSubmit, useNavigation } from "react-router";
+import { useLoaderData, useActionData, useSubmit, useNavigation } from "react-router";
 import {
   Page,
   Layout,
@@ -18,7 +18,7 @@ import {
   Icon,
   Grid,
 } from "@shopify/polaris";
-import { CheckIcon, EmailIcon, ClockIcon, CheckCircleIcon } from "@shopify/polaris-icons";
+import { CheckIcon, EmailIcon, ClockIcon, CheckCircleIcon, SendIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { ensureStoreRecord } from "../services/syncEngine.server.js";
@@ -51,45 +51,52 @@ export const action = async ({ request }) => {
         where: { id: store.id },
         data: { plan: selectedPlan.toLowerCase() },
       });
-      return { success: true, message: `Successfully updated to ${selectedPlan} plan!` };
+      return { success: true, message: `Successfully updated to ${selectedPlan.toUpperCase()} plan!` };
     }
   }
 
   if (actionType === "SUBMIT_SUPPORT_TICKET") {
-    const subject = formData.get("subject");
-    const message = formData.get("message");
-    const merchantEmail = formData.get("merchantEmail") || ADMIN_EMAIL;
+    const subject = (formData.get("subject") || "").toString().trim();
+    const message = (formData.get("message") || "").toString().trim();
+    const merchantEmail = (formData.get("merchantEmail") || "").toString().trim() || ADMIN_EMAIL;
 
-    if (subject && message) {
-      await prisma.supportTicket.create({
-        data: {
-          storeId: store.id,
-          subject,
-          message,
-          merchantEmail,
-          status: "OPEN",
-        },
-      });
-
-      await prisma.store.update({
-        where: { id: store.id },
-        data: { adminEmail: merchantEmail },
-      });
-
-      return { success: true, message: "Support ticket sent successfully!" };
+    if (!subject || !message) {
+      return { success: false, error: "Subject and detailed message are required to submit a ticket." };
     }
+
+    await prisma.supportTicket.create({
+      data: {
+        storeId: store.id,
+        subject,
+        message,
+        merchantEmail,
+        status: "OPEN",
+      },
+    });
+
+    await prisma.store.update({
+      where: { id: store.id },
+      data: { adminEmail: merchantEmail },
+    });
+
+    return {
+      success: true,
+      message: `Support ticket submitted to ${ADMIN_EMAIL} successfully! We will get back to you shortly.`,
+    };
   }
 
-  return { success: false };
+  return { success: false, error: "Invalid action." };
 };
 
 export default function Plans() {
   const { store, supportTickets } = useLoaderData();
+  const actionData = useActionData();
   const submit = useSubmit();
   const navigation = useNavigation();
   const isLoading = navigation.state !== "idle";
 
   const [supportModalOpen, setSupportModalOpen] = useState(false);
+  const [showInlineForm, setShowInlineForm] = useState(false);
   const [supportSubject, setSupportSubject] = useState("");
   const [supportMessage, setSupportMessage] = useState("");
   const [contactEmail, setContactEmail] = useState(store.adminEmail || ADMIN_EMAIL);
@@ -99,11 +106,16 @@ export default function Plans() {
 
   const handleSelectPlan = (planId, planName) => {
     submit({ actionType: "SELECT_PLAN", plan: planId }, { method: "post" });
-    setFeedbackBanner(`Switched to ${planName}!`);
+  };
+
+  const handleOpenSupportForm = () => {
+    setSupportModalOpen(true);
+    setShowInlineForm(true);
   };
 
   const handleSendSupportTicket = () => {
     if (!supportSubject.trim() || !supportMessage.trim()) return;
+
     submit(
       {
         actionType: "SUBMIT_SUPPORT_TICKET",
@@ -113,10 +125,10 @@ export default function Plans() {
       },
       { method: "post" }
     );
+
     setSupportModalOpen(false);
     setSupportSubject("");
     setSupportMessage("");
-    setFeedbackBanner(`Support ticket submitted to ${ADMIN_EMAIL}. We will respond shortly.`);
   };
 
   const plans = [
@@ -193,6 +205,9 @@ export default function Plans() {
     },
   ];
 
+  const bannerMessage = actionData?.message || feedbackBanner;
+  const isActionSuccess = actionData?.success ?? true;
+
   return (
     <Page
       fullWidth
@@ -201,13 +216,19 @@ export default function Plans() {
       primaryAction={{
         content: "Submit Support Ticket",
         icon: EmailIcon,
-        onClick: () => setSupportModalOpen(true),
+        onClick: handleOpenSupportForm,
       }}
     >
       <BlockStack gap="500">
-        {feedbackBanner && (
+        {actionData?.error && (
+          <Banner tone="critical" title="Ticket Submission Error">
+            <p>{actionData.error}</p>
+          </Banner>
+        )}
+
+        {bannerMessage && isActionSuccess && (
           <Banner tone="success" onDismiss={() => setFeedbackBanner("")}>
-            <p>{feedbackBanner}</p>
+            <p>{bannerMessage}</p>
           </Banner>
         )}
 
@@ -307,7 +328,7 @@ export default function Plans() {
               <Button
                 variant="primary"
                 icon={EmailIcon}
-                onClick={() => setSupportModalOpen(true)}
+                onClick={handleOpenSupportForm}
               >
                 Open Support Ticket
               </Button>
@@ -345,15 +366,65 @@ export default function Plans() {
                       </Text>
                     </InlineStack>
                     <Text variant="bodySm">
-                      Pro & Growth Subscribers: <strong>2 - 4 hours response SLA</strong>
+                      Pro & Growth Subscribers: <strong>Within 24 hours response SLA</strong>
                     </Text>
                     <Text variant="bodySm" tone="subdued">
-                      Free Tier Subscribers: Within 24 hours
+                      Free Tier Subscribers: Within 2 to 3 business days
                     </Text>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
             </Grid>
+
+            {/* Inline Support Ticket Creation Form */}
+            {showInlineForm && (
+              <Box padding="400" borderRadius="200" background="bg-surface-secondary">
+                <BlockStack gap="300">
+                  <InlineStack align="space-between" blockAlign="center">
+                    <Text variant="headingSm" as="h4" fontWeight="bold">
+                      Submit Merchant Support Inquiry
+                    </Text>
+                    <Button size="micro" variant="tertiary" onClick={() => setShowInlineForm(false)}>
+                      Close Form
+                    </Button>
+                  </InlineStack>
+                  <FormLayout>
+                    <TextField
+                      label="Contact Email"
+                      value={contactEmail}
+                      onChange={setContactEmail}
+                      autoComplete="email"
+                    />
+                    <TextField
+                      label="Subject / Inquiry Topic"
+                      value={supportSubject}
+                      onChange={setSupportSubject}
+                      placeholder="e.g. Need assistance setting up custom metafield audit rules"
+                      autoComplete="off"
+                    />
+                    <TextField
+                      label="Detailed Message"
+                      value={supportMessage}
+                      onChange={setSupportMessage}
+                      multiline={4}
+                      placeholder="Please explain your question or issue in detail..."
+                      autoComplete="off"
+                    />
+                    <InlineStack align="end">
+                      <Button
+                        variant="primary"
+                        icon={SendIcon}
+                        loading={isLoading}
+                        disabled={!supportSubject.trim() || !supportMessage.trim()}
+                        onClick={handleSendSupportTicket}
+                      >
+                        Submit Support Ticket
+                      </Button>
+                    </InlineStack>
+                  </FormLayout>
+                </BlockStack>
+              </Box>
+            )}
 
             {/* Support Ticket History */}
             {supportTickets.length > 0 && (

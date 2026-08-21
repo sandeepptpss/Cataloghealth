@@ -21,22 +21,25 @@ import { PlusIcon, DeleteIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { ensureStoreRecord } from "../services/syncEngine.server.js";
+import { getPlanConfig } from "../services/planEngine.server.js";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
+  const planConfig = getPlanConfig(store.plan);
 
   const rules = await prisma.validationRule.findMany({
     where: { storeId: store.id },
     orderBy: { priority: "asc" },
   });
 
-  return { store, rules };
+  return { store, rules, planConfig };
 };
 
 export const action = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
+  const planConfig = getPlanConfig(store.plan);
   const formData = await request.formData();
   const actionType = formData.get("actionType");
 
@@ -56,6 +59,12 @@ export const action = async ({ request }) => {
   }
 
   if (actionType === "CREATE_RULE") {
+    if (!planConfig.customRules) {
+      return {
+        success: false,
+        error: "Custom Validation Rule Builder and Metafield/Barcode audits require Pro Advanced ($29/mo) or Plus Enterprise ($49/mo) plan.",
+      };
+    }
     const name = (formData.get("name") || "").toString().trim();
     if (!name) {
       return { success: false, error: "Rule name is required." };
@@ -114,10 +123,12 @@ export const action = async ({ request }) => {
 };
 
 export default function ValidationRules() {
-  const { rules } = useLoaderData();
+  const { rules, planConfig } = useLoaderData();
   const submit = useSubmit();
   const navigation = useNavigation();
   const isLoading = navigation.state !== "idle";
+
+  const isCustomRulesAllowed = planConfig?.customRules ?? false;
 
   const [modalActive, setModalActive] = useState(false);
   const [ruleName, setRuleName] = useState("");
@@ -221,12 +232,26 @@ export default function ValidationRules() {
       primaryAction={{
         content: "Add New Audit Rule",
         icon: PlusIcon,
+        disabled: !isCustomRulesAllowed,
         onClick: () => setModalActive(true),
       }}
     >
       <Layout>
         <Layout.Section>
           <BlockStack gap="400">
+            {!isCustomRulesAllowed && (
+              <Banner tone="warning" title="Plan Upgrade Required for Custom Rules">
+                <p>
+                  Custom validation rule engineering, required metafield checks, and barcode audits are features reserved for <strong>Pro Advanced ($29/mo)</strong> and <strong>Plus Enterprise ($49/mo)</strong> plans.
+                </p>
+                <p>
+                  <a href="/app/plans" style={{ fontWeight: "bold" }}>
+                    Upgrade your subscription plan to enable custom audit rules.
+                  </a>
+                </p>
+              </Banner>
+            )}
+
             <Banner tone="info">
               <p>
                 Validation rules are evaluated by priority (lower number = higher priority). Specific collection or vendor rules override global rules.

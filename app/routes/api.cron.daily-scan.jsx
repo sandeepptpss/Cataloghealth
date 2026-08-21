@@ -10,6 +10,7 @@ import {
   pruneCompletedScanJobs,
   pruneWebhookEvents,
 } from "../services/alertEngine.server.js";
+import { getPlanConfig } from "../services/planEngine.server.js";
 
 /**
  * Scheduled catalog re-audit (spec #21).
@@ -55,12 +56,14 @@ export const action = async ({ request }) => {
 
   const stores = await prisma.store.findMany({
     where: { status: "active" },
-    select: { id: true, shopDomain: true },
+    select: { id: true, shopDomain: true, plan: true },
   });
+
+  const eligibleStores = stores.filter((s) => getPlanConfig(s.plan).dailyScan);
 
   const queued = [];
   const digests = [];
-  for (const store of stores) {
+  for (const store of eligibleStores) {
     const job = await enqueueFullScan({
       storeId: store.id,
       scanType: "SCHEDULED",

@@ -15,6 +15,8 @@
  * highest-priority-last so a specific rule overrides a general one (spec #15).
  */
 
+import { getPlanConfig } from "./planEngine.server.js";
+
 export function normalizeSku(sku) {
   if (!sku) return "";
   return sku.trim().toUpperCase();
@@ -27,8 +29,10 @@ export function validateProductData({
   collections = [],
   rules = [],
   skuCountMap = new Map(), // map of normalizedSku -> count
+  storePlan = "free",
 }) {
   const issues = [];
+  const planConfig = getPlanConfig(storePlan);
 
   // Priority 1 = highest, priority 100 = lowest (spec #15). Each matching rule
   // overwrites the accumulated settings, so we apply them from LOWEST to
@@ -69,10 +73,10 @@ export function validateProductData({
       if (rule.minImages !== undefined) minImages = rule.minImages;
       if (rule.checkPrices !== undefined) checkPrices = rule.checkPrices;
       if (rule.checkSku !== undefined) checkSku = rule.checkSku;
-      if (rule.checkBarcode !== undefined) checkBarcode = rule.checkBarcode;
+      if (rule.checkBarcode !== undefined && planConfig.barcodeAudit) checkBarcode = rule.checkBarcode;
       if (rule.checkDescription !== undefined) checkDescription = rule.checkDescription;
 
-      if (rule.requiredMetafields) {
+      if (rule.requiredMetafields && planConfig.requiredMetafields) {
         rule.requiredMetafields.split(",").forEach((mf) => {
           const trimmed = mf.trim();
           if (trimmed) requiredMetafields.add(trimmed);

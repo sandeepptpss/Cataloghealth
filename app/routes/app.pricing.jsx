@@ -312,10 +312,10 @@ export default function PricingPlans() {
                       Support SLA & Response Time
                     </Text>
                     <Text variant="bodySm" tone="subdued">
-                      Pro & Growth Plan merchants receive responses within 2-4 hours.
+                      Pro & Growth Plan merchants receive responses within 24 hours.
                     </Text>
                     <Text variant="bodySm" tone="subdued">
-                      Free plan support queries answered within 24 hours.
+                      Free plan support queries answered within 2 to 3 business days.
                     </Text>
                   </BlockStack>
                 </Card>

@@ -5,6 +5,7 @@ import {
   ensureWorkerStarted,
   JOB_PRIORITY,
 } from "./scanQueue.server.js";
+import { getPlanConfig } from "./planEngine.server.js";
 
 /**
  * Webhook intake (spec #18, #19, #20).
@@ -46,6 +47,20 @@ export async function handleShopifyWebhook({ topic, shop, payload, eventId }) {
 
   try {
     if (store) {
+      const planConfig = getPlanConfig(store.plan);
+
+      // Real-time Webhook instant scans are restricted to Pro Advanced and Plus Enterprise plans
+      if (!planConfig.webhookScan) {
+        await prisma.webhookEvent.update({
+          where: { id: webhookRecord.id },
+          data: {
+            status: "SKIPPED_PLAN_LIMIT",
+            processedAt: new Date(),
+          },
+        });
+        return { status: "SKIPPED_PLAN_LIMIT" };
+      }
+
       const shopifyProductId =
         payload?.admin_graphql_api_id ||
         (payload?.id ? `gid://shopify/Product/${payload.id}` : null);

@@ -81,15 +81,17 @@ export const loader = async ({ request }) => {
   let freeCount = 0;
   let growthCount = 0;
   let proCount = 0;
+  let enterpriseCount = 0;
 
   stores.forEach((st) => {
     const p = (st.plan || "free").toLowerCase();
     if (p === "growth") growthCount++;
     else if (p === "pro") proCount++;
+    else if (p === "enterprise") enterpriseCount++;
     else freeCount++;
   });
 
-  const estimatedMRR = growthCount * 9 + proCount * 29;
+  const estimatedMRR = growthCount * 9 + proCount * 29 + enterpriseCount * 49;
 
   const supportTickets = await prisma.supportTicket.findMany({
     include: {
@@ -106,6 +108,7 @@ export const loader = async ({ request }) => {
     freeCount,
     growthCount,
     proCount,
+    enterpriseCount,
     estimatedMRR,
     supportTickets,
   };
