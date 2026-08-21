@@ -36,7 +36,7 @@ import {
   JOB_PRIORITY,
 } from "../services/scanQueue.server.js";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 10;
 
 const TABS = [
   { id: "all", label: "Open", where: { status: "OPEN" } },
@@ -586,17 +586,23 @@ export default function Dashboard() {
                       headings={["Severity", "Issue Title", "Product", "Status", "Actions"]}
                       rows={issueRows}
                     />
-                    {totalPages > 1 && (
-                      <InlineStack align="center" gap="200">
-                        <Pagination
-                          hasPrevious={page > 1}
-                          onPrevious={() => updateParams({ page: page - 1 })}
-                          hasNext={page < totalPages}
-                          onNext={() => updateParams({ page: page + 1 })}
-                          label={`Page ${page} of ${totalPages} — ${filteredCount} issues`}
-                        />
-                      </InlineStack>
-                    )}
+                    <Box paddingBlockStart="300" paddingBlockEnd="100">
+                      <Divider />
+                      <Box paddingBlockStart="300">
+                        <InlineStack align="space-between" blockAlign="center">
+                          <Text variant="bodySm" tone="subdued">
+                            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredCount)} of {filteredCount} issues
+                          </Text>
+                          <Pagination
+                            hasPrevious={page > 1}
+                            onPrevious={() => updateParams({ page: page - 1 })}
+                            hasNext={page < totalPages}
+                            onNext={() => updateParams({ page: page + 1 })}
+                            label={`Page ${page} of ${totalPages}`}
+                          />
+                        </InlineStack>
+                      </Box>
+                    </Box>
                   </BlockStack>
                 )}
               </BlockStack>
