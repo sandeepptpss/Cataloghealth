@@ -23,10 +23,10 @@ export default function App() {
       <PolarisProvider i18n={enTranslations}>
         <ui-nav-menu>
           <a href="/app" rel="home">Dashboard</a>
-          <a href="/app/pricing">Pricing & Plans</a>
+          <a href="/app/plans">Plans</a>
+          <a href="/app/admin">Admin Portal</a>
           <a href="/app/rules">Validation Rules</a>
           <a href="/app/scans">Scan Logs</a>
-          <a href="/app/admin">Admin Portal</a>
         </ui-nav-menu>
         <Outlet />
       </PolarisProvider>
