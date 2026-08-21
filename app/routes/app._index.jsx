@@ -1,4 +1,4 @@
-import { useLoaderData, useSubmit, useNavigation, useSearchParams } from "react-router";
+import { useLoaderData, useSubmit, useNavigation, useSearchParams, useNavigate } from "react-router";
 import {
   Page,
   Layout,
@@ -243,6 +243,7 @@ export default function Dashboard() {
     page,
     pageSize,
   } = useLoaderData();
+  const navigate = useNavigate();
 
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -362,10 +363,10 @@ export default function Dashboard() {
       )}
       <Button
         size="micro"
-        url={`/app/product/${issue.productId}`}
         icon={ViewIcon}
+        onClick={() => navigate(`/app/product/${issue.productId}`)}
       >
-        View
+        View Details
       </Button>
     </InlineStack>,
   ]);

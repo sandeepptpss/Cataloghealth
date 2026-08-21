@@ -194,8 +194,13 @@ export default function ProductHealthDetail() {
     v.compareAtPrice ? `$${Number(v.compareAtPrice).toFixed(2)}` : "—",
   ]);
 
+  const shopDomainPrefix = store.shopDomain.replace(".myshopify.com", "");
+  const rawShopifyId = product.shopifyProductId?.split("/").pop();
+  const shopifyAdminUrl = rawShopifyId ? `https://admin.shopify.com/store/${shopDomainPrefix}/products/${rawShopifyId}` : null;
+
   return (
     <Page
+      fullWidth
       title={product.title}
       subtitle={`Vendor: ${product.vendor || 'N/A'} • Type: ${product.productType || 'N/A'} • Status: ${product.status}`}
       backAction={{ content: "Dashboard", url: "/app" }}
@@ -205,6 +210,17 @@ export default function ProductHealthDetail() {
         loading: isLoading,
         onClick: handleRescan,
       }}
+      secondaryActions={
+        shopifyAdminUrl
+          ? [
+              {
+                content: "Edit in Shopify Admin",
+                url: shopifyAdminUrl,
+                external: true,
+              },
+            ]
+          : []
+      }
     >
       <Layout>
         <Layout.Section variant="oneThird">
