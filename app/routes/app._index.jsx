@@ -402,9 +402,13 @@ export default function Dashboard() {
           <Banner
             title={`${criticalIssuesCount} Critical Catalog Issues Detected!`}
             tone="critical"
+            action={{
+              content: "View Critical Issues ↗",
+              onClick: () => updateParams({ tab: "critical", page: 1 }),
+            }}
           >
             <p>
-              Your store catalog has critical errors (missing images, zero/negative pricing, or duplicate SKUs) that impact customer purchases. Please review the critical issues below.
+              Your store catalog has critical errors (missing images, zero/negative pricing, or duplicate SKUs) that impact customer purchases. Click above to view and resolve them immediately.
             </p>
           </Banner>
         )}
@@ -479,30 +483,42 @@ export default function Dashboard() {
                     </Text>
                   </Box>
 
-                  <Box>
+                  <Box
+                    onClick={() => updateParams({ tab: "critical", page: 1 })}
+                    style={{ cursor: "pointer", padding: "4px 8px", borderRadius: "8px" }}
+                    title="Click to view Critical Issues"
+                  >
                     <Text variant="headingLg" as="p" fontWeight="bold" tone="critical">
                       {criticalIssuesCount}
                     </Text>
                     <Text variant="bodySm" tone="subdued">
-                      Critical Issues
+                      Critical Issues ↗
                     </Text>
                   </Box>
 
-                  <Box>
+                  <Box
+                    onClick={() => updateParams({ tab: "warning", page: 1 })}
+                    style={{ cursor: "pointer", padding: "4px 8px", borderRadius: "8px" }}
+                    title="Click to view Warning Issues"
+                  >
                     <Text variant="headingLg" as="p" fontWeight="bold" tone="caution">
                       {warningIssuesCount}
                     </Text>
                     <Text variant="bodySm" tone="subdued">
-                      Warnings
+                      Warnings ↗
                     </Text>
                   </Box>
 
-                  <Box>
+                  <Box
+                    onClick={() => updateParams({ tab: "resolved", page: 1 })}
+                    style={{ cursor: "pointer", padding: "4px 8px", borderRadius: "8px" }}
+                    title="Click to view Resolved Issues"
+                  >
                     <Text variant="headingLg" as="p" fontWeight="bold" tone="success">
                       {resolvedIssuesCount}
                     </Text>
                     <Text variant="bodySm" tone="subdued">
-                      Resolved
+                      Resolved ↗
                     </Text>
                   </Box>
                 </InlineStack>
@@ -526,22 +542,35 @@ export default function Dashboard() {
                 Recent Alerts
               </Text>
               <Text variant="bodySm" tone="subdued">
-                Issues are summarised into digests rather than one alert per issue.
+                Click any alert card below to filter matching issues in the table.
               </Text>
               <BlockStack gap="200">
                 {alerts.map((alert) => (
-                  <Box key={alert.id} padding="300" borderRadius="200" background="bg-surface-secondary">
+                  <Box
+                    key={alert.id}
+                    padding="300"
+                    borderRadius="200"
+                    background="bg-surface-secondary"
+                    onClick={() => updateParams({ tab: alert.criticalCount > 0 ? "critical" : "all", page: 1 })}
+                    style={{ cursor: "pointer" }}
+                    title="Click to filter issues for this alert"
+                  >
                     <BlockStack gap="100">
-                      <InlineStack gap="200" blockAlign="center">
-                        <Badge tone={alert.criticalCount > 0 ? "critical" : "info"}>
-                          {alert.type === "CRITICAL_ALERT" ? "Critical" : "Daily"}
-                        </Badge>
-                        <Text variant="bodyMd" fontWeight="bold">
-                          {alert.title}
-                        </Text>
-                        <Badge tone={alert.status === "SENT" ? "success" : undefined}>
-                          {alert.status}
-                        </Badge>
+                      <InlineStack gap="200" blockAlign="center" align="space-between">
+                        <InlineStack gap="200" blockAlign="center">
+                          <Badge tone={alert.criticalCount > 0 ? "critical" : "info"}>
+                            {alert.type === "CRITICAL_ALERT" ? "Critical Alert" : "Daily Alert"}
+                          </Badge>
+                          <Text variant="bodyMd" fontWeight="bold">
+                            {alert.title}
+                          </Text>
+                          <Badge tone={alert.status === "SENT" ? "success" : undefined}>
+                            {alert.status}
+                          </Badge>
+                        </InlineStack>
+                        <Button size="micro" variant="tertiary">
+                          Filter Matching Issues ↗
+                        </Button>
                       </InlineStack>
                       <Text variant="bodySm" tone="subdued">
                         {new Date(alert.createdAt).toLocaleString()}
@@ -561,18 +590,73 @@ export default function Dashboard() {
             onSelect={(index) => updateParams({ tab: TABS[index].id, page: null })}
           >
             <Box padding="400">
-              <BlockStack gap="400">
-                <TextField
-                  label="Search issues"
-                  labelHidden
-                  placeholder="Search issues by title, product name or SKU..."
-                  value={searchInput}
-                  onChange={setSearchInput}
-                  prefix={<Icon source={SearchIcon} />}
-                  clearButton
-                  onClearButtonClick={() => setSearchInput("")}
-                  autoComplete="off"
-                />
+              <BlockStack gap="300">
+                <InlineStack gap="300" align="space-between" blockAlign="center">
+                  <Box style={{ flex: 1 }}>
+                    <TextField
+                      label="Search issues"
+                      labelHidden
+                      placeholder="Search issues by title, product name or SKU..."
+                      value={searchInput}
+                      onChange={setSearchInput}
+                      prefix={<Icon source={SearchIcon} />}
+                      clearButton
+                      onClearButtonClick={() => setSearchInput("")}
+                      autoComplete="off"
+                    />
+                  </Box>
+                  <InlineStack gap="200" blockAlign="center">
+                    <Button
+                      size="medium"
+                      tone={tabId === "critical" ? "critical" : undefined}
+                      variant={tabId === "critical" ? "primary" : "secondary"}
+                      onClick={() => updateParams({ tab: "critical", page: 1 })}
+                    >
+                      Critical Only ({criticalIssuesCount})
+                    </Button>
+                    <Button
+                      size="medium"
+                      onClick={() => updateParams({ tab: "warning", page: 1 })}
+                      variant={tabId === "warning" ? "primary" : "secondary"}
+                    >
+                      Warnings ({warningIssuesCount})
+                    </Button>
+                    {(searchInput || tabId !== "all") && (
+                      <Button
+                        size="medium"
+                        tone="critical"
+                        variant="tertiary"
+                        onClick={() => {
+                          setSearchInput("");
+                          updateParams({ tab: "all", q: null, page: 1 });
+                        }}
+                      >
+                        Reset Filters
+                      </Button>
+                    )}
+                  </InlineStack>
+                </InlineStack>
+
+                {(searchInput || tabId !== "all") && (
+                  <InlineStack gap="200" blockAlign="center">
+                    <Text variant="bodySm" tone="subdued">
+                      Active Filters:
+                    </Text>
+                    {tabId !== "all" && (
+                      <Badge
+                        tone={tabId === "critical" ? "critical" : "info"}
+                        onDismiss={() => updateParams({ tab: "all", page: 1 })}
+                      >
+                        Status: {activeTab.label}
+                      </Badge>
+                    )}
+                    {searchInput && (
+                      <Badge onDismiss={() => setSearchInput("")}>
+                        Query: "{searchInput}"
+                      </Badge>
+                    )}
+                  </InlineStack>
+                )}
 
                 {issues.length === 0 ? (
                   <Box padding="800">
