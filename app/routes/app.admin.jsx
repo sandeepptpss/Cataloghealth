@@ -89,7 +89,7 @@ export const loader = async ({ request }) => {
     else freeCount++;
   });
 
-  const estimatedMRR = growthCount * 19 + proCount * 49;
+  const estimatedMRR = growthCount * 9 + proCount * 29;
 
   const supportTickets = await prisma.supportTicket.findMany({
     include: {

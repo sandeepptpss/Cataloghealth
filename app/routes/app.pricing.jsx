@@ -123,9 +123,9 @@ export default function PricingPlans() {
       period: "/month",
       badge: "Starter",
       badgeTone: "subdued",
-      description: "Essential health checks for boutique Shopify catalogs.",
+      description: "Essential health checks for growing Shopify catalogs.",
       features: [
-        "Audit up to 100 products",
+        "Audit up to 250 products",
         "Basic Missing SKU & Price checks",
         "Weekly manual catalog scan",
         "Standard Dashboard Metrics",
@@ -135,13 +135,13 @@ export default function PricingPlans() {
     {
       id: "growth",
       name: "Growth Plan",
-      price: "$29",
+      price: "$9",
       period: "/month",
       badge: "Growing Stores",
       badgeTone: "info",
       description: "Automated daily catalog audits & duplicate SKU detection.",
       features: [
-        "Audit up to 1,000 products",
+        "Audit up to 2,500 products",
         "Automated Daily Catalog Scans",
         "Missing Image & Zero-Price Detection",
         "Duplicate SKU Detection Engine",
@@ -152,7 +152,7 @@ export default function PricingPlans() {
     {
       id: "pro",
       name: "Pro Advanced",
-      price: "$79",
+      price: "$29",
       period: "/month",
       badge: "Most Popular",
       badgeTone: "highlight",
@@ -169,7 +169,7 @@ export default function PricingPlans() {
     {
       id: "enterprise",
       name: "Plus Enterprise",
-      price: "$199",
+      price: "$49",
       period: "/month",
       badge: "Unlimited",
       badgeTone: "success",
