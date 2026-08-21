@@ -9,14 +9,21 @@ import { authenticate } from "../shopify.server";
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
+
+  const adminStoreName = process.env.ADMIN_STORE_NAME || "quickstart-749ac396";
+  const shopDomain = session.shop.toLowerCase();
+  const isAdmin = shopDomain.includes(adminStoreName.toLowerCase());
 
   // eslint-disable-next-line no-undef
-  return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+  return {
+    apiKey: process.env.SHOPIFY_API_KEY || "",
+    isAdmin,
+  };
 };
 
 export default function App() {
-  const { apiKey } = useLoaderData();
+  const { apiKey, isAdmin } = useLoaderData();
 
   return (
     <ShopifyAppProvider embedded apiKey={apiKey}>
@@ -27,7 +34,7 @@ export default function App() {
           <a href="/app/rules">Validation Rules</a>
           <a href="/app/scans">Scan Logs</a>
           <a href="/app/plans">Plans</a>
-          <a href="/app/admin">Admin Portal</a>
+          {isAdmin && <a href="/app/admin">Admin Portal</a>}
         </ui-nav-menu>
         <Outlet />
       </PolarisProvider>
