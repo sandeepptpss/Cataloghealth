@@ -1,7 +1,9 @@
 import { Outlet, useLoaderData, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-import { AppProvider } from "@shopify/shopify-app-react-router/react";
+import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-react-router/react";
+import { AppProvider as PolarisProvider } from "@shopify/polaris";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
+import enTranslations from "@shopify/polaris/locales/en.json";
 import { authenticate } from "../shopify.server";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
@@ -17,14 +19,16 @@ export default function App() {
   const { apiKey } = useLoaderData();
 
   return (
-    <AppProvider embedded apiKey={apiKey}>
-      <ui-nav-menu>
-        <a href="/app" rel="home">Dashboard</a>
-        <a href="/app/rules">Validation Rules</a>
-        <a href="/app/scans">Scan Logs</a>
-      </ui-nav-menu>
-      <Outlet />
-    </AppProvider>
+    <ShopifyAppProvider embedded apiKey={apiKey}>
+      <PolarisProvider i18n={enTranslations}>
+        <ui-nav-menu>
+          <a href="/app" rel="home">Dashboard</a>
+          <a href="/app/rules">Validation Rules</a>
+          <a href="/app/scans">Scan Logs</a>
+        </ui-nav-menu>
+        <Outlet />
+      </PolarisProvider>
+    </ShopifyAppProvider>
   );
 }
 
