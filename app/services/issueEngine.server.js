@@ -1,4 +1,12 @@
-import prisma from "../db.server.js";
+import db from "../db.server.js";
+
+async function getPrisma() {
+  if (db && db.store) {
+    return db;
+  }
+  const freshDbModule = await import("../db.server.js?t=" + Date.now());
+  return freshDbModule.default;
+}
 
 const SEVERITY_WEIGHTS = {
   CRITICAL: 20,
@@ -6,11 +14,8 @@ const SEVERITY_WEIGHTS = {
   INFO: 3,
 };
 
-/**
- * Update issues for a product based on detected validation issues
- */
 export async function syncProductIssues(storeId, productId, detectedIssues) {
-  // Fetch existing issues for this product
+  const prisma = await getPrisma();
   const existingIssues = await prisma.issue.findMany({
     where: {
       storeId,
@@ -34,13 +39,11 @@ export async function syncProductIssues(storeId, productId, detectedIssues) {
 
     if (existing) {
       if (existing.status === "OPEN") {
-        // Update lastSeenAt
         await prisma.issue.update({
           where: { id: existing.id },
           data: { lastSeenAt: new Date() },
         });
       } else if (existing.status === "RESOLVED") {
-        // Re-open resolved issue if detected again
         await prisma.issue.update({
           where: { id: existing.id },
           data: {
@@ -59,9 +62,7 @@ export async function syncProductIssues(storeId, productId, detectedIssues) {
           },
         });
       }
-      // If IGNORED, do not reopen automatically according to business rules!
     } else {
-      // Create new issue
       const newIssue = await prisma.issue.create({
         data: {
           storeId,
@@ -89,7 +90,6 @@ export async function syncProductIssues(storeId, productId, detectedIssues) {
     }
   }
 
-  // Check for issues that were NOT detected in this scan -> resolve if OPEN
   for (const [key, existing] of existingIssueMap.entries()) {
     if (!processedKeys.has(key) && existing.status === "OPEN") {
       await prisma.issue.update({
@@ -112,15 +112,11 @@ export async function syncProductIssues(storeId, productId, detectedIssues) {
     }
   }
 
-  // Calculate and store health scores
   return await calculateAndSaveHealthScores(storeId, productId);
 }
 
-/**
- * Calculate Product & Store Health Scores
- */
 export async function calculateAndSaveHealthScores(storeId, productId) {
-  // Get active OPEN issues for the product
+  const prisma = await getPrisma();
   const activeIssues = await prisma.issue.findMany({
     where: {
       productId,
@@ -136,7 +132,6 @@ export async function calculateAndSaveHealthScores(storeId, productId) {
   const productScore = Math.max(0, 100 - scoreDeduction);
   const hasIssues = activeIssues.length > 0;
 
-  // Update Product record
   await prisma.product.update({
     where: { id: productId },
     data: {
@@ -145,17 +140,13 @@ export async function calculateAndSaveHealthScores(storeId, productId) {
     },
   });
 
-  // Update Store overall health score
   await updateStoreHealthScore(storeId);
 
   return { productScore, activeIssuesCount: activeIssues.length };
 }
 
-/**
- * Store Overall Health Score calculation:
- * Weighted average of products + critical issue penalty
- */
 export async function updateStoreHealthScore(storeId) {
+  const prisma = await getPrisma();
   const products = await prisma.product.findMany({
     where: { storeId },
     select: { healthScore: true },
@@ -180,7 +171,6 @@ export async function updateStoreHealthScore(storeId) {
     },
   });
 
-  // Apply critical issue penalty (-0.5 per critical issue, max penalty -30)
   const criticalPenalty = Math.min(30, criticalIssuesCount * 0.5);
   const finalStoreScore = Math.max(0, Math.round((avgProductScore - criticalPenalty) * 10) / 10);
 

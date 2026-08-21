@@ -1,6 +1,15 @@
-import prisma from "../db.server.js";
+import db from "../db.server.js";
 import { normalizeSku, validateProductData } from "./validationEngine.server.js";
 import { syncProductIssues, updateStoreHealthScore } from "./issueEngine.server.js";
+
+async function getPrisma() {
+  if (db && db.store) {
+    return db;
+  }
+  // Fail-safe for Vite SSR module caching during development:
+  const freshDbModule = await import("../db.server.js?t=" + Date.now());
+  return freshDbModule.default;
+}
 
 const PRODUCTS_QUERY = `#graphql
   query getCatalogProducts($first: Int!, $after: String) {
@@ -89,6 +98,7 @@ const SINGLE_PRODUCT_QUERY = `#graphql
 `;
 
 export async function ensureStoreRecord(shopDomain) {
+  const prisma = await getPrisma();
   let store = await prisma.store.findUnique({
     where: { shopDomain },
   });
@@ -102,7 +112,6 @@ export async function ensureStoreRecord(shopDomain) {
       },
     });
 
-    // Create default validation rule
     await prisma.validationRule.create({
       data: {
         storeId: store.id,
@@ -124,6 +133,7 @@ export async function ensureStoreRecord(shopDomain) {
 }
 
 export async function syncAndScanCatalog(admin, storeId, scanType = "FULL") {
+  const prisma = await getPrisma();
   const scan = await prisma.catalogScan.create({
     data: {
       storeId,
@@ -143,7 +153,6 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL") {
       where: { storeId, isEnabled: true },
     });
 
-    // First pass: pull products in batches and index SKUs
     while (hasNextPage) {
       const response = await admin.graphql(PRODUCTS_QUERY, {
         variables: {
@@ -173,7 +182,6 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL") {
       hasNextPage = productsData.pageInfo.hasNextPage;
       endCursor = productsData.pageInfo.endCursor;
 
-      // Update cursor progress
       await prisma.catalogScan.update({
         where: { id: scan.id },
         data: {
@@ -184,10 +192,8 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL") {
       });
     }
 
-    // Build SKU index map across catalog for duplicate detection
     const skuIndexMap = await buildCatalogSkuIndexMap(storeId);
 
-    // Second pass: Run validation engine & issue sync for all products
     const dbProducts = await prisma.product.findMany({
       where: { storeId },
       include: {
@@ -210,7 +216,6 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL") {
 
     await updateStoreHealthScore(storeId);
 
-    // Mark scan complete
     await prisma.catalogScan.update({
       where: { id: scan.id },
       data: {
@@ -235,6 +240,7 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL") {
 }
 
 export async function syncAndScanSingleProduct(admin, storeId, shopifyProductId) {
+  const prisma = await getPrisma();
   const rules = await prisma.validationRule.findMany({
     where: { storeId, isEnabled: true },
   });
@@ -269,6 +275,7 @@ export async function syncAndScanSingleProduct(admin, storeId, shopifyProductId)
 }
 
 async function upsertProductRecord(storeId, p) {
+  const prisma = await getPrisma();
   const imagesCount = p.media?.nodes?.length || 0;
 
   const product = await prisma.product.upsert({
@@ -302,10 +309,8 @@ async function upsertProductRecord(storeId, p) {
     },
   });
 
-  // Clear existing SKU indexes for this product
   await prisma.skuIndex.deleteMany({ where: { productId: product.id } });
 
-  // Sync Variants
   const variants = p.variants?.nodes || [];
   for (const v of variants) {
     const rawSku = v.sku || "";
@@ -354,7 +359,6 @@ async function upsertProductRecord(storeId, p) {
     }
   }
 
-  // Sync Metafields
   const metafields = p.metafields?.nodes || [];
   for (const mf of metafields) {
     if (!mf || !mf.namespace || !mf.key) continue;
@@ -384,6 +388,7 @@ async function upsertProductRecord(storeId, p) {
 }
 
 async function buildCatalogSkuIndexMap(storeId) {
+  const prisma = await getPrisma();
   const indexes = await prisma.skuIndex.findMany({
     where: { storeId },
     select: { normalizedSku: true },
