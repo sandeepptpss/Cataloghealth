@@ -16,9 +16,20 @@ import {
   Grid,
   Modal,
   TextField,
-  FormLayout,
+  Icon,
+  Tabs,
+  ProgressBar,
+  ButtonGroup,
 } from "@shopify/polaris";
-import { CheckCircleIcon, EmailIcon, RefreshIcon } from "@shopify/polaris-icons";
+import {
+  CheckCircleIcon,
+  EmailIcon,
+  RefreshIcon,
+  SearchIcon,
+  ViewIcon,
+  PersonIcon,
+  StoreIcon,
+} from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { ensureStoreRecord } from "../services/syncEngine.server.js";
@@ -30,30 +41,28 @@ export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const currentStore = await ensureStoreRecord(session.shop);
 
-  // Grant admin access for sandeepptpss@gmail.com and quickstart-749ac396.myshopify.com
   const isAdmin =
     session.shop.toLowerCase().includes("quickstart-749ac396") ||
     currentStore.adminEmail === ADMIN_EMAIL ||
     session.shop.toLowerCase() === ADMIN_SHOP.toLowerCase();
 
-  // Fetch all stores overview for admin dashboard
   const stores = await prisma.store.findMany({
     include: {
       _count: {
         select: {
           products: true,
           issues: true,
+          catalogScans: true,
         },
       },
       issues: {
         where: { status: "OPEN" },
-        select: { id: true },
+        select: { id: true, severity: true },
       },
     },
     orderBy: { installedAt: "desc" },
   });
 
-  // Calculate plan distribution & metrics
   let freeCount = 0;
   let growthCount = 0;
   let proCount = 0;
@@ -67,7 +76,6 @@ export const loader = async ({ request }) => {
 
   const estimatedMRR = growthCount * 19 + proCount * 49;
 
-  // Support Tickets
   const supportTickets = await prisma.supportTicket.findMany({
     include: {
       store: { select: { shopDomain: true } },
@@ -125,7 +133,6 @@ export const action = async ({ request }) => {
 export default function AdminDashboard() {
   const {
     isAdmin,
-    currentStore,
     stores,
     freeCount,
     growthCount,
@@ -138,7 +145,16 @@ export default function AdminDashboard() {
   const navigation = useNavigation();
   const isLoading = navigation.state !== "idle";
 
-  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [selectedTab, setSelectedTab] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedStoreModal, setSelectedStoreModal] = useState(null);
+
+  const tabs = [
+    { id: "all", content: `All Merchants (${stores.length})` },
+    { id: "free", content: `Free Plan (${freeCount})` },
+    { id: "growth", content: `Growth Plan (${growthCount})` },
+    { id: "pro", content: `Pro Plan (${proCount})` },
+  ];
 
   const handleToggleTicketStatus = (ticketId) => {
     submit({ actionType: "TOGGLE_TICKET_STATUS", ticketId }, { method: "post" });
@@ -146,147 +162,155 @@ export default function AdminDashboard() {
 
   const handleUpdateStorePlan = (storeId, newPlan) => {
     submit({ actionType: "UPDATE_MERCHANT_PLAN", storeId, newPlan }, { method: "post" });
+    if (selectedStoreModal && selectedStoreModal.id === storeId) {
+      setSelectedStoreModal((prev) => (prev ? { ...prev, plan: newPlan.toLowerCase() } : null));
+    }
   };
 
-  // Merchant Subscription Table Rows
-  const merchantRows = stores.map((st) => [
-    <BlockStack key={`domain-${st.id}`} gap="1">
-      <Text variant="bodyMd" fontWeight="bold">
-        {st.shopDomain}
-      </Text>
-      <Text variant="bodySm" tone="subdued">
-        ID: {st.id.substring(0, 8)}...
-      </Text>
-    </BlockStack>,
-    <Badge
-      key={`plan-${st.id}`}
-      tone={
-        st.plan.toLowerCase() === "pro"
-          ? "success"
-          : st.plan.toLowerCase() === "growth"
-          ? "highlight"
-          : "subdued"
-      }
-    >
-      {st.plan.toUpperCase()}
-    </Badge>,
-    <Text key={`score-${st.id}`} variant="bodyMd" fontWeight="bold">
-      {st.healthScore.toFixed(1)}%
-    </Text>,
-    <Text key={`prods-${st.id}`} variant="bodyMd">
-      {st._count.products}
-    </Text>,
-    <Text
-      key={`issues-${st.id}`}
-      variant="bodyMd"
-      tone={(st.issues || []).length > 0 ? "critical" : "success"}
-    >
-      {(st.issues || []).length}
-    </Text>,
-    <Text key={`date-${st.id}`} variant="bodySm">
-      {new Date(st.installedAt).toLocaleDateString()}
-    </Text>,
-    <InlineStack key={`act-${st.id}`} gap="2">
-      {st.plan.toLowerCase() !== "pro" ? (
-        <Button
-          size="micro"
-          tone="success"
-          onClick={() => handleUpdateStorePlan(st.id, "pro")}
-        >
-          Upgrade Pro
-        </Button>
-      ) : (
-        <Button
-          size="micro"
-          onClick={() => handleUpdateStorePlan(st.id, "free")}
-        >
-          Set Free
-        </Button>
-      )}
-    </InlineStack>,
-  ]);
+  // Filter stores based on search query & active tab
+  const filteredStores = stores.filter((st) => {
+    const matchesSearch =
+      st.shopDomain.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (st.adminEmail && st.adminEmail.toLowerCase().includes(searchQuery.toLowerCase()));
 
-  // Support Ticket Rows
-  const ticketRows = supportTickets.map((t) => [
-    <Badge
-      key={`stat-${t.id}`}
-      tone={t.status === "OPEN" ? "attention" : "success"}
-    >
-      {t.status}
-    </Badge>,
-    <Text key={`shop-${t.id}`} variant="bodySm" fontWeight="bold">
-      {t.store?.shopDomain || "Unknown Store"}
-    </Text>,
-    <BlockStack key={`sub-${t.id}`} gap="1">
-      <Text variant="bodyMd" fontWeight="bold">
-        {t.subject}
-      </Text>
-      <Text variant="bodySm" tone="subdued">
-        {t.message}
-      </Text>
-    </BlockStack>,
-    <Text key={`email-${t.id}`} variant="bodySm">
-      {t.merchantEmail}
-    </Text>,
-    <Text key={`time-${t.id}`} variant="bodySm">
-      {new Date(t.createdAt).toLocaleString()}
-    </Text>,
-    <InlineStack key={`act-${t.id}`} gap="2">
-      <Button size="micro" onClick={() => handleToggleTicketStatus(t.id)}>
-        {t.status === "OPEN" ? "Mark Resolved" : "Reopen"}
-      </Button>
-      <Button
-        size="micro"
-        icon={EmailIcon}
-        url={`mailto:${t.merchantEmail}?subject=Re: ${encodeURIComponent(t.subject)}`}
+    const currentTabId = tabs[selectedTab].id;
+    if (currentTabId === "all") return matchesSearch;
+    return matchesSearch && (st.plan || "free").toLowerCase() === currentTabId;
+  });
+
+  const getHealthTone = (score) => {
+    if (score >= 85) return "success";
+    if (score >= 60) return "highlight";
+    return "critical";
+  };
+
+  // Build rows for Merchant Table
+  const merchantTableRows = filteredStores.map((st) => {
+    const openIssues = (st.issues || []).length;
+    const criticalIssues = (st.issues || []).filter((i) => i.severity === "CRITICAL").length;
+
+    return [
+      <BlockStack key={`domain-${st.id}`} gap="100">
+        <InlineStack gap="150" align="start">
+          <Icon source={StoreIcon} tone="subdued" />
+          <Text variant="bodyMd" fontWeight="bold">
+            {st.shopDomain}
+          </Text>
+        </InlineStack>
+        <Text variant="bodySm" tone="subdued">
+          Admin Email: {st.adminEmail || "sandeepptpss@gmail.com"}
+        </Text>
+      </BlockStack>,
+      <Badge
+        key={`plan-${st.id}`}
+        tone={
+          st.plan.toLowerCase() === "pro"
+            ? "success"
+            : st.plan.toLowerCase() === "growth"
+            ? "highlight"
+            : "subdued"
+        }
       >
-        Reply Email
-      </Button>
-    </InlineStack>,
-  ]);
+        {st.plan.toUpperCase()}
+      </Badge>,
+      <Box key={`score-${st.id}`} minWidth="120px">
+        <BlockStack gap="100">
+          <InlineStack align="space-between">
+            <Text variant="bodySm" fontWeight="bold">
+              {st.healthScore.toFixed(1)}%
+            </Text>
+            <Text variant="bodySm" tone="subdued">
+              {st.healthScore >= 85 ? "Healthy" : "Needs Review"}
+            </Text>
+          </InlineStack>
+          <ProgressBar progress={st.healthScore} tone={getHealthTone(st.healthScore)} size="small" />
+        </BlockStack>
+      </Box>,
+      <Text key={`prods-${st.id}`} variant="bodyMd" fontWeight="bold">
+        {st._count.products}
+      </Text>,
+      <InlineStack key={`issues-${st.id}`} gap="100">
+        <Badge tone={openIssues > 0 ? "critical" : "success"}>
+          {openIssues} Open
+        </Badge>
+        {criticalIssues > 0 && <Badge tone="critical">{criticalIssues} Critical</Badge>}
+      </InlineStack>,
+      <Text key={`date-${st.id}`} variant="bodySm">
+        {new Date(st.installedAt).toLocaleDateString()}
+      </Text>,
+      <InlineStack key={`act-${st.id}`} gap="150">
+        <Button
+          size="micro"
+          icon={ViewIcon}
+          onClick={() => setSelectedStoreModal(st)}
+        >
+          View Details
+        </Button>
+        {st.plan.toLowerCase() !== "pro" ? (
+          <Button
+            size="micro"
+            tone="success"
+            onClick={() => handleUpdateStorePlan(st.id, "pro")}
+          >
+            Set Pro
+          </Button>
+        ) : (
+          <Button
+            size="micro"
+            onClick={() => handleUpdateStorePlan(st.id, "free")}
+          >
+            Set Free
+          </Button>
+        )}
+      </InlineStack>,
+    ];
+  });
 
   return (
     <Page
-      title="App Admin Overview & Subscription Portal"
-      subtitle={`Admin Access Granted to ${ADMIN_EMAIL} for ${ADMIN_SHOP}`}
+      title="App Admin Dashboard"
+      subtitle={`Administrator Portal • Pre-Granted Access for ${ADMIN_EMAIL} (${ADMIN_SHOP})`}
     >
-      <BlockStack gap="5">
-        {/* Admin Access Status Banner */}
-        <Banner title="Admin Access Verification & Permissions" tone="info">
+      <BlockStack gap="500">
+        {/* Top Summary Banner */}
+        <Banner title="Admin Control Center & Subscription Analytics" tone="info">
           <p>
-            Admin access privileges are active for <strong>{ADMIN_EMAIL}</strong> and store <strong>{ADMIN_SHOP}</strong>. You have complete visibility over merchant subscriptions, plan distributions, pricing models, and merchant support tickets.
+            Welcome to your master administration dashboard. Monitor all merchant installations, subscription plans, MRR revenue metrics, catalog audit status, and merchant support inquiries.
           </p>
         </Banner>
 
-        {/* Plan Breakdown Stat Cards */}
+        {/* Metric Cards Header */}
         <Grid>
           <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}>
             <Card padding="400">
-              <BlockStack gap="2">
+              <BlockStack gap="200">
                 <Text variant="bodySm" tone="subdued">
-                  Total Installed Merchants
+                  Total Active Merchants
                 </Text>
                 <Text variant="heading2xl" as="p" fontWeight="bold">
                   {stores.length}
                 </Text>
-                <Text variant="bodySm" tone="success">
-                  Active Stores
-                </Text>
+                <InlineStack gap="100">
+                  <Badge tone="success">Active</Badge>
+                  <Text variant="bodySm" tone="subdued">
+                    100% retention
+                  </Text>
+                </InlineStack>
               </BlockStack>
             </Card>
           </Grid.Cell>
 
           <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}>
             <Card padding="400">
-              <BlockStack gap="2">
+              <BlockStack gap="200">
                 <Text variant="bodySm" tone="subdued">
-                  Free Tier Merchants
+                  Free Plan Subscribers
                 </Text>
                 <Text variant="heading2xl" as="p" fontWeight="bold">
                   {freeCount}
                 </Text>
                 <Text variant="bodySm" tone="subdued">
-                  $0/month subscribers
+                  $0/mo tier merchants
                 </Text>
               </BlockStack>
             </Card>
@@ -294,15 +318,15 @@ export default function AdminDashboard() {
 
           <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}>
             <Card padding="400">
-              <BlockStack gap="2">
+              <BlockStack gap="200">
                 <Text variant="bodySm" tone="subdued">
-                  Growth & Pro Merchants
+                  Paid Plan Subscribers
                 </Text>
                 <Text variant="heading2xl" as="p" fontWeight="bold" tone="highlight">
                   {growthCount + proCount}
                 </Text>
                 <Text variant="bodySm" tone="subdued">
-                  {growthCount} Growth | {proCount} Pro
+                  {growthCount} Growth (${growthCount * 19}) | {proCount} Pro (${proCount * 49})
                 </Text>
               </BlockStack>
             </Card>
@@ -310,110 +334,361 @@ export default function AdminDashboard() {
 
           <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}>
             <Card padding="400">
-              <BlockStack gap="2">
+              <BlockStack gap="200">
                 <Text variant="bodySm" tone="subdued">
-                  Estimated Monthly Revenue
+                  Monthly Recurring Revenue (MRR)
                 </Text>
                 <Text variant="heading2xl" as="p" fontWeight="bold" tone="success">
                   ${estimatedMRR}
                 </Text>
-                <Text variant="bodySm" tone="subdued">
-                  Recurring MRR
+                <Text variant="bodySm" tone="success">
+                  Active Subscription Revenue
                 </Text>
               </BlockStack>
             </Card>
           </Grid.Cell>
         </Grid>
 
-        {/* Pricing Plans Overview Table */}
+        {/* Merchant Subscription Directory Table with Tabs & Search */}
         <Card padding="0">
-          <Box padding="400">
-            <Text variant="headingMd" as="h3">
-              Available Plans Details & Pricing Matrix
-            </Text>
-          </Box>
-          <Divider />
-          <DataTable
-            columnContentTypes={["text", "text", "text", "text", "text"]}
-            headings={["Plan Name", "Pricing", "Product Audit Limit", "Active Subscribers", "Key Features"]}
-            rows={[
-              [
-                <Text key="f1" fontWeight="bold">Free Tier</Text>,
-                "$0 / month",
-                "Up to 250 Products",
-                `${freeCount} Merchants`,
-                "Basic image & SKU validation, weekly manual scan",
-              ],
-              [
-                <Text key="f2" fontWeight="bold">Growth Plan</Text>,
-                "$19 / month",
-                "Up to 2,500 Products",
-                `${growthCount} Merchants`,
-                "Daily auto scans, metafield checks, priority email support",
-              ],
-              [
-                <Text key="f3" fontWeight="bold">Pro Enterprise</Text>,
-                "$49 / month",
-                "Unlimited Products",
-                `${proCount} Merchants`,
-                "Custom priority builder, auto-fix safety layer, 24/7 support",
-              ],
-            ]}
-          />
+          <BlockStack gap="0">
+            <Box padding="400">
+              <InlineStack align="space-between">
+                <BlockStack gap="100">
+                  <Text variant="headingMd" as="h3">
+                    Merchant Subscription Directory
+                  </Text>
+                  <Text variant="bodySm" tone="subdued">
+                    Search and manage plan subscriptions for registered Shopify merchant stores.
+                  </Text>
+                </BlockStack>
+              </InlineStack>
+            </Box>
+
+            <Divider />
+
+            <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab}>
+              <Box padding="400">
+                <BlockStack gap="400">
+                  <TextField
+                    label="Search Merchants"
+                    labelHidden
+                    placeholder="Search merchant by store domain name or email..."
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    prefix={<Icon source={SearchIcon} />}
+                    clearButton
+                    onClearButtonClick={() => setSearchQuery("")}
+                    autoComplete="off"
+                  />
+
+                  {filteredStores.length === 0 ? (
+                    <Box padding="600">
+                      <BlockStack align="center" inlineAlign="center" gap="200">
+                        <Icon source={StoreIcon} tone="subdued" />
+                        <Text variant="headingSm">No merchants match your search</Text>
+                        <Text variant="bodySm" tone="subdued">
+                          Try searching for another store domain or clear search filters.
+                        </Text>
+                      </BlockStack>
+                    </Box>
+                  ) : (
+                    <DataTable
+                      columnContentTypes={["text", "text", "text", "text", "text", "text", "text"]}
+                      headings={[
+                        "Merchant Store",
+                        "Active Plan",
+                        "Health Score",
+                        "Products",
+                        "Open Issues",
+                        "Installed Date",
+                        "Actions",
+                      ]}
+                      rows={merchantTableRows}
+                    />
+                  )}
+                </BlockStack>
+              </Box>
+            </Tabs>
+          </BlockStack>
         </Card>
 
-        {/* Merchant Subscriptions Table */}
-        <Card padding="0">
-          <Box padding="400">
-            <InlineStack align="space-between">
+        {/* Plans Overview & Pricing Comparison Matrix */}
+        <Card padding="500">
+          <BlockStack gap="400">
+            <BlockStack gap="100">
               <Text variant="headingMd" as="h3">
-                Merchant Subscription Directory ({stores.length})
+                Subscription Tiers & Plan Details
               </Text>
               <Text variant="bodySm" tone="subdued">
-                Manage merchant plan allocations & status
+                Overview of available plan features and active merchant allocations across tiers.
               </Text>
-            </InlineStack>
-          </Box>
-          <Divider />
-          <DataTable
-            columnContentTypes={["text", "text", "text", "text", "text", "text", "text"]}
-            headings={["Store Domain", "Active Plan", "Health Score", "Products", "Open Issues", "Installed Date", "Actions"]}
-            rows={merchantRows}
-          />
+            </BlockStack>
+
+            <Grid>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 4, lg: 4, xl: 4 }}>
+                <Card padding="400" background="bg-surface-secondary">
+                  <BlockStack gap="300">
+                    <InlineStack align="space-between">
+                      <Text variant="headingSm" as="h4">
+                        Free Tier
+                      </Text>
+                      <Badge tone="subdued">{freeCount} Merchants</Badge>
+                    </InlineStack>
+                    <Text variant="headingLg" as="p" fontWeight="bold">
+                      $0 <Text variant="bodySm" tone="subdued" as="span">/ month</Text>
+                    </Text>
+                    <Text variant="bodySm" tone="subdued">
+                      Audit limit: Up to 250 products. Basic image & SKU checks, weekly manual audits.
+                    </Text>
+                  </BlockStack>
+                </Card>
+              </Grid.Cell>
+
+              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 4, lg: 4, xl: 4 }}>
+                <Card padding="400" background="bg-surface-secondary">
+                  <BlockStack gap="300">
+                    <InlineStack align="space-between">
+                      <Text variant="headingSm" as="h4">
+                        Growth Plan
+                      </Text>
+                      <Badge tone="highlight">{growthCount} Merchants</Badge>
+                    </InlineStack>
+                    <Text variant="headingLg" as="p" fontWeight="bold">
+                      $19 <Text variant="bodySm" tone="subdued" as="span">/ month</Text>
+                    </Text>
+                    <Text variant="bodySm" tone="subdued">
+                      Audit limit: Up to 2,500 products. Daily automated scans, required metafield checks.
+                    </Text>
+                  </BlockStack>
+                </Card>
+              </Grid.Cell>
+
+              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 4, lg: 4, xl: 4 }}>
+                <Card padding="400" background="bg-surface-secondary">
+                  <BlockStack gap="300">
+                    <InlineStack align="space-between">
+                      <Text variant="headingSm" as="h4">
+                        Pro Enterprise
+                      </Text>
+                      <Badge tone="success">{proCount} Merchants</Badge>
+                    </InlineStack>
+                    <Text variant="headingLg" as="p" fontWeight="bold">
+                      $49 <Text variant="bodySm" tone="subdued" as="span">/ month</Text>
+                    </Text>
+                    <Text variant="bodySm" tone="subdued">
+                      Audit limit: Unlimited products. Real-time webhooks, auto-fix engine, 24/7 support.
+                    </Text>
+                  </BlockStack>
+                </Card>
+              </Grid.Cell>
+            </Grid>
+          </BlockStack>
         </Card>
 
-        {/* Merchant Support Inbox */}
-        <Card padding="0">
-          <Box padding="400">
+        {/* Merchant Support Tickets Inbox */}
+        <Card padding="500">
+          <BlockStack gap="400">
             <InlineStack align="space-between">
-              <Text variant="headingMd" as="h3">
-                Merchant Support Inbox & Ticket Queue ({supportTickets.length})
-              </Text>
-              <Button size="micro" icon={EmailIcon} url={`mailto:${ADMIN_EMAIL}`}>
-                Open Inbox ({ADMIN_EMAIL})
-              </Button>
-            </InlineStack>
-          </Box>
-          <Divider />
-          {supportTickets.length === 0 ? (
-            <Box padding="600" align="center">
-              <BlockStack align="center" inlineAlign="center" gap="2">
-                <CheckCircleIcon tone="success" />
-                <Text variant="headingSm">No open support tickets!</Text>
+              <BlockStack gap="100">
+                <Text variant="headingMd" as="h3">
+                  Merchant Support Ticket Inbox ({supportTickets.length})
+                </Text>
                 <Text variant="bodySm" tone="subdued">
-                  All merchant support inquiries have been handled.
+                  Inquiries submitted by merchants directly to support ({ADMIN_EMAIL})
                 </Text>
               </BlockStack>
-            </Box>
-          ) : (
-            <DataTable
-              columnContentTypes={["text", "text", "text", "text", "text", "text"]}
-              headings={["Status", "Store Domain", "Subject & Message", "Merchant Email", "Created At", "Actions"]}
-              rows={ticketRows}
-            />
-          )}
+              <Button icon={EmailIcon} url={`mailto:${ADMIN_EMAIL}`}>
+                Open Mailbox ({ADMIN_EMAIL})
+              </Button>
+            </InlineStack>
+
+            <Divider />
+
+            {supportTickets.length === 0 ? (
+              <Box padding="500">
+                <BlockStack align="center" inlineAlign="center" gap="200">
+                  <Icon source={CheckCircleIcon} tone="success" size="large" />
+                  <Text variant="headingSm">No Open Support Tickets</Text>
+                  <Text variant="bodySm" tone="subdued">
+                    All merchant inquiries have been addressed and resolved.
+                  </Text>
+                </BlockStack>
+              </Box>
+            ) : (
+              <BlockStack gap="300">
+                {supportTickets.map((ticket) => (
+                  <Card key={ticket.id} padding="400">
+                    <InlineStack align="space-between" blockAlign="start">
+                      <BlockStack gap="200">
+                        <InlineStack gap="200" blockAlign="center">
+                          <Badge tone={ticket.status === "OPEN" ? "attention" : "success"}>
+                            {ticket.status}
+                          </Badge>
+                          <Text variant="bodyMd" fontWeight="bold">
+                            {ticket.subject}
+                          </Text>
+                        </InlineStack>
+                        <Text variant="bodySm">
+                          {ticket.message}
+                        </Text>
+                        <InlineStack gap="400">
+                          <Text variant="bodySm" tone="subdued">
+                            Store: {ticket.store?.shopDomain || "Unknown Store"}
+                          </Text>
+                          <Text variant="bodySm" tone="subdued">
+                            Contact: {ticket.merchantEmail}
+                          </Text>
+                          <Text variant="bodySm" tone="subdued">
+                            Submitted: {new Date(ticket.createdAt).toLocaleString()}
+                          </Text>
+                        </InlineStack>
+                      </BlockStack>
+
+                      <ButtonGroup gap="200">
+                        <Button
+                          size="micro"
+                          onClick={() => handleToggleTicketStatus(ticket.id)}
+                        >
+                          {ticket.status === "OPEN" ? "Mark Resolved" : "Reopen"}
+                        </Button>
+                        <Button
+                          size="micro"
+                          icon={EmailIcon}
+                          url={`mailto:${ticket.merchantEmail}?subject=Re: ${encodeURIComponent(ticket.subject)}`}
+                        >
+                          Reply Email
+                        </Button>
+                      </ButtonGroup>
+                    </InlineStack>
+                  </Card>
+                ))}
+              </BlockStack>
+            )}
+          </BlockStack>
         </Card>
       </BlockStack>
+
+      {/* Detailed Merchant Modal */}
+      {selectedStoreModal && (
+        <Modal
+          open={Boolean(selectedStoreModal)}
+          onClose={() => setSelectedStoreModal(null)}
+          title={`Merchant Details — ${selectedStoreModal.shopDomain}`}
+          primaryAction={{
+            content: "Close",
+            onClick: () => setSelectedStoreModal(null),
+          }}
+        >
+          <Modal.Section>
+            <BlockStack gap="400">
+              <InlineStack align="space-between">
+                <BlockStack gap="100">
+                  <Text variant="headingSm" as="h4">
+                    Store Metadata & Subscription Status
+                  </Text>
+                  <Text variant="bodySm" tone="subdued">
+                    Store ID: {selectedStoreModal.id}
+                  </Text>
+                </BlockStack>
+                <Badge
+                  tone={
+                    selectedStoreModal.plan.toLowerCase() === "pro"
+                      ? "success"
+                      : selectedStoreModal.plan.toLowerCase() === "growth"
+                      ? "highlight"
+                      : "subdued"
+                  }
+                >
+                  {selectedStoreModal.plan.toUpperCase()} PLAN
+                </Badge>
+              </InlineStack>
+
+              <Divider />
+
+              <Grid>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                  <BlockStack gap="100">
+                    <Text variant="bodySm" tone="subdued">
+                      Installed Date
+                    </Text>
+                    <Text variant="bodyMd" fontWeight="bold">
+                      {new Date(selectedStoreModal.installedAt).toLocaleString()}
+                    </Text>
+                  </BlockStack>
+                </Grid.Cell>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                  <BlockStack gap="100">
+                    <Text variant="bodySm" tone="subdued">
+                      Merchant Admin Email
+                    </Text>
+                    <Text variant="bodyMd" fontWeight="bold">
+                      {selectedStoreModal.adminEmail || "sandeepptpss@gmail.com"}
+                    </Text>
+                  </BlockStack>
+                </Grid.Cell>
+              </Grid>
+
+              <Grid>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                  <BlockStack gap="100">
+                    <Text variant="bodySm" tone="subdued">
+                      Total Synced Products
+                    </Text>
+                    <Text variant="headingLg" as="p" fontWeight="bold">
+                      {selectedStoreModal._count?.products || 0}
+                    </Text>
+                  </BlockStack>
+                </Grid.Cell>
+                <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                  <BlockStack gap="100">
+                    <Text variant="bodySm" tone="subdued">
+                      Active Catalog Health Score
+                    </Text>
+                    <Text
+                      variant="headingLg"
+                      as="p"
+                      fontWeight="bold"
+                      tone={getHealthTone(selectedStoreModal.healthScore)}
+                    >
+                      {selectedStoreModal.healthScore.toFixed(1)}%
+                    </Text>
+                  </BlockStack>
+                </Grid.Cell>
+              </Grid>
+
+              <Divider />
+
+              <BlockStack gap="200">
+                <Text variant="headingSm" as="h4">
+                  Quick Subscription Plan Controls
+                </Text>
+                <InlineStack gap="200">
+                  <Button
+                    disabled={selectedStoreModal.plan.toLowerCase() === "free"}
+                    onClick={() => handleUpdateStorePlan(selectedStoreModal.id, "free")}
+                  >
+                    Switch to Free ($0)
+                  </Button>
+                  <Button
+                    disabled={selectedStoreModal.plan.toLowerCase() === "growth"}
+                    onClick={() => handleUpdateStorePlan(selectedStoreModal.id, "growth")}
+                  >
+                    Switch to Growth ($19)
+                  </Button>
+                  <Button
+                    tone="success"
+                    disabled={selectedStoreModal.plan.toLowerCase() === "pro"}
+                    onClick={() => handleUpdateStorePlan(selectedStoreModal.id, "pro")}
+                  >
+                    Upgrade to Pro ($49)
+                  </Button>
+                </InlineStack>
+              </BlockStack>
+            </BlockStack>
+          </Modal.Section>
+        </Modal>
+      )}
     </Page>
   );
 }
