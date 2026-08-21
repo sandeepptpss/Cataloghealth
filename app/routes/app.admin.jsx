@@ -42,9 +42,12 @@ export const loader = async ({ request }) => {
       _count: {
         select: {
           products: true,
-          issues: { where: { status: "OPEN" } },
-          supportTickets: { where: { status: "OPEN" } },
+          issues: true,
         },
+      },
+      issues: {
+        where: { status: "OPEN" },
+        select: { id: true },
       },
     },
     orderBy: { installedAt: "desc" },
@@ -176,9 +179,9 @@ export default function AdminDashboard() {
     <Text
       key={`issues-${st.id}`}
       variant="bodyMd"
-      tone={st._count.issues > 0 ? "critical" : "success"}
+      tone={(st.issues || []).length > 0 ? "critical" : "success"}
     >
-      {st._count.issues}
+      {(st.issues || []).length}
     </Text>,
     <Text key={`date-${st.id}`} variant="bodySm">
       {new Date(st.installedAt).toLocaleDateString()}
