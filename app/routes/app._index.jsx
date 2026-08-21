@@ -67,6 +67,9 @@ export const loader = async ({ request }) => {
 
   const activeTab = TABS.find((t) => t.id === tabId);
 
+  const upperQuery = query.toUpperCase();
+  const severityMatches = ["CRITICAL", "WARNING", "INFO"].filter((s) => s.includes(upperQuery));
+
   const searchFilter = query
     ? {
         OR: [
@@ -74,7 +77,7 @@ export const loader = async ({ request }) => {
           { description: { contains: query } },
           { fieldName: { contains: query } },
           { issueType: { contains: query } },
-          { severity: { contains: query } },
+          ...(severityMatches.length > 0 ? [{ severity: { in: severityMatches } }] : []),
           { product: { title: { contains: query } } },
           { variant: { sku: { contains: query } } },
           { variant: { title: { contains: query } } },
