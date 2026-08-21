@@ -18,6 +18,7 @@ import {
   Divider,
   Pagination,
   Select,
+  Spinner,
 } from "@shopify/polaris";
 import {
   CheckCircleIcon,
@@ -70,8 +71,13 @@ export const loader = async ({ request }) => {
     ? {
         OR: [
           { title: { contains: query } },
+          { description: { contains: query } },
+          { fieldName: { contains: query } },
+          { issueType: { contains: query } },
+          { severity: { contains: query } },
           { product: { title: { contains: query } } },
           { variant: { sku: { contains: query } } },
+          { variant: { title: { contains: query } } },
         ],
       }
     : {};
@@ -596,12 +602,16 @@ export default function Dashboard() {
                     <TextField
                       label="Search issues"
                       labelHidden
-                      placeholder="Search issues by title, product name or SKU..."
+                      placeholder="Search issues by title, description, SKU, field name or severity..."
                       value={searchInput}
                       onChange={setSearchInput}
                       prefix={<Icon source={SearchIcon} />}
+                      suffix={isLoading ? <Spinner size="small" /> : null}
                       clearButton
-                      onClearButtonClick={() => setSearchInput("")}
+                      onClearButtonClick={() => {
+                        setSearchInput("");
+                        updateParams({ q: null, page: 1 });
+                      }}
                       autoComplete="off"
                     />
                   </Box>
