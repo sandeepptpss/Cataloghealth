@@ -122,7 +122,7 @@ export const action = async ({ params, request }) => {
 };
 
 export default function ProductHealthDetail() {
-  const { product } = useLoaderData();
+  const { store, product } = useLoaderData();
   const submit = useSubmit();
   const navigation = useNavigation();
   const isLoading = navigation.state !== "idle";
