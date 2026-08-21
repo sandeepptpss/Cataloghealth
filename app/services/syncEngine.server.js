@@ -1,15 +1,7 @@
-import db from "../db.server.js";
+import prisma from "../db.server.js";
 import { normalizeSku, validateProductData } from "./validationEngine.server.js";
 import { syncProductIssues, updateStoreHealthScore } from "./issueEngine.server.js";
 
-async function getPrisma() {
-  if (db && db.store) {
-    return db;
-  }
-  // Fail-safe for Vite SSR module caching during development:
-  const freshDbModule = await import("../db.server.js?t=" + Date.now());
-  return freshDbModule.default;
-}
 
 const PRODUCTS_QUERY = `#graphql
   query getCatalogProducts($first: Int!, $after: String) {
@@ -98,7 +90,6 @@ const SINGLE_PRODUCT_QUERY = `#graphql
 `;
 
 export async function ensureStoreRecord(shopDomain) {
-  const prisma = await getPrisma();
   let store = await prisma.store.findUnique({
     where: { shopDomain },
   });
@@ -133,7 +124,6 @@ export async function ensureStoreRecord(shopDomain) {
 }
 
 export async function syncAndScanCatalog(admin, storeId, scanType = "FULL") {
-  const prisma = await getPrisma();
   const scan = await prisma.catalogScan.create({
     data: {
       storeId,
@@ -240,7 +230,6 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL") {
 }
 
 export async function syncAndScanSingleProduct(admin, storeId, shopifyProductId) {
-  const prisma = await getPrisma();
   const rules = await prisma.validationRule.findMany({
     where: { storeId, isEnabled: true },
   });
@@ -275,7 +264,6 @@ export async function syncAndScanSingleProduct(admin, storeId, shopifyProductId)
 }
 
 async function upsertProductRecord(storeId, p) {
-  const prisma = await getPrisma();
   const imagesCount = p.media?.nodes?.length || 0;
 
   const product = await prisma.product.upsert({
@@ -388,7 +376,6 @@ async function upsertProductRecord(storeId, p) {
 }
 
 async function buildCatalogSkuIndexMap(storeId) {
-  const prisma = await getPrisma();
   const indexes = await prisma.skuIndex.findMany({
     where: { storeId },
     select: { normalizedSku: true },

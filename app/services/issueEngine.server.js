@@ -1,12 +1,5 @@
-import db from "../db.server.js";
+import prisma from "../db.server.js";
 
-async function getPrisma() {
-  if (db && db.store) {
-    return db;
-  }
-  const freshDbModule = await import("../db.server.js?t=" + Date.now());
-  return freshDbModule.default;
-}
 
 const SEVERITY_WEIGHTS = {
   CRITICAL: 20,
@@ -15,7 +8,6 @@ const SEVERITY_WEIGHTS = {
 };
 
 export async function syncProductIssues(storeId, productId, detectedIssues) {
-  const prisma = await getPrisma();
   const existingIssues = await prisma.issue.findMany({
     where: {
       storeId,
@@ -116,7 +108,6 @@ export async function syncProductIssues(storeId, productId, detectedIssues) {
 }
 
 export async function calculateAndSaveHealthScores(storeId, productId) {
-  const prisma = await getPrisma();
   const activeIssues = await prisma.issue.findMany({
     where: {
       productId,
@@ -146,7 +137,6 @@ export async function calculateAndSaveHealthScores(storeId, productId) {
 }
 
 export async function updateStoreHealthScore(storeId) {
-  const prisma = await getPrisma();
   const products = await prisma.product.findMany({
     where: { storeId },
     select: { healthScore: true },

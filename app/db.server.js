@@ -1,31 +1,11 @@
 import { PrismaClient } from "@prisma/client";
 
-function getPrismaClient() {
-  if (process.env.NODE_ENV === "production") {
-    if (!global.prismaGlobal) {
-      global.prismaGlobal = new PrismaClient();
-    }
-    return global.prismaGlobal;
-  }
-
-  if (!global.prismaGlobal || !global.prismaGlobal.store) {
-    global.prismaGlobal = new PrismaClient();
-  }
-  return global.prismaGlobal;
+// Reuse a single client across Vite dev-server module reloads so we don't
+// exhaust the MySQL connection pool on every HMR update.
+if (process.env.NODE_ENV !== "production" && !global.prismaGlobal) {
+  global.prismaGlobal = new PrismaClient();
 }
 
-const prisma = new Proxy(
-  {},
-  {
-    get(target, prop) {
-      const client = getPrismaClient();
-      const value = Reflect.get(client, prop);
-      if (typeof value === "function") {
-        return value.bind(client);
-      }
-      return value;
-    },
-  }
-);
+const prisma = global.prismaGlobal ?? new PrismaClient();
 
 export default prisma;
