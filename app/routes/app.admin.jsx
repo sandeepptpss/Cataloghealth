@@ -35,16 +35,31 @@ import prisma from "../db.server.js";
 import { ensureStoreRecord } from "../services/syncEngine.server.js";
 
 const ADMIN_EMAIL = "sandeepptpss@gmail.com";
-const ADMIN_SHOP = "quickstart-749ac396.myshopify.com";
+const ADMIN_SHOP_PREFIX = "quickstart-749ac396";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const currentStore = await ensureStoreRecord(session.shop);
 
+  const shopDomain = session.shop.toLowerCase();
+  const adminEmail = (currentStore.adminEmail || "").toLowerCase();
+
   const isAdmin =
-    session.shop.toLowerCase().includes("quickstart-749ac396") ||
-    currentStore.adminEmail === ADMIN_EMAIL ||
-    session.shop.toLowerCase() === ADMIN_SHOP.toLowerCase();
+    shopDomain.includes(ADMIN_SHOP_PREFIX.toLowerCase()) ||
+    adminEmail === ADMIN_EMAIL.toLowerCase();
+
+  if (!isAdmin) {
+    return {
+      isAdmin: false,
+      currentStore,
+      stores: [],
+      freeCount: 0,
+      growthCount: 0,
+      proCount: 0,
+      estimatedMRR: 0,
+      supportTickets: [],
+    };
+  }
 
   const stores = await prisma.store.findMany({
     include: {
@@ -85,7 +100,7 @@ export const loader = async ({ request }) => {
   });
 
   return {
-    isAdmin,
+    isAdmin: true,
     currentStore,
     stores,
     freeCount,
@@ -98,6 +113,19 @@ export const loader = async ({ request }) => {
 
 export const action = async ({ request }) => {
   const { session } = await authenticate.admin(request);
+  const currentStore = await ensureStoreRecord(session.shop);
+
+  const shopDomain = session.shop.toLowerCase();
+  const adminEmail = (currentStore.adminEmail || "").toLowerCase();
+
+  const isAdmin =
+    shopDomain.includes(ADMIN_SHOP_PREFIX.toLowerCase()) ||
+    adminEmail === ADMIN_EMAIL.toLowerCase();
+
+  if (!isAdmin) {
+    return { success: false, error: "Unauthorized access: Admin portal is restricted to authorized accounts only." };
+  }
+
   const formData = await request.formData();
   const actionType = formData.get("actionType");
 
@@ -133,6 +161,7 @@ export const action = async ({ request }) => {
 export default function AdminDashboard() {
   const {
     isAdmin,
+    currentStore,
     stores,
     freeCount,
     growthCount,
@@ -148,6 +177,33 @@ export default function AdminDashboard() {
   const [selectedTab, setSelectedTab] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStoreModal, setSelectedStoreModal] = useState(null);
+
+  if (!isAdmin) {
+    return (
+      <Page fullWidth title="Admin Access Restricted">
+        <Layout>
+          <Layout.Section>
+            <Card padding="600">
+              <BlockStack gap="400">
+                <Banner title="Access Restricted" tone="critical">
+                  <p>
+                    The Admin Portal is restricted to authorized platform administrators only:
+                  </p>
+                  <ul>
+                    <li><strong>Admin Email:</strong> sandeepptpss@gmail.com</li>
+                    <li><strong>Admin Store ID:</strong> quickstart-749ac396</li>
+                  </ul>
+                  <p>
+                    Your current store account (<code>{currentStore?.shopDomain}</code>) does not have administrator privileges.
+                  </p>
+                </Banner>
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+        </Layout>
+      </Page>
+    );
+  }
 
   const tabs = [
     { id: "all", content: `All Merchants (${stores.length})` },

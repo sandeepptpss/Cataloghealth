@@ -506,49 +506,85 @@ export default function Dashboard() {
                   <Box
                     padding="300"
                     borderRadius="200"
-                    background="bg-surface-secondary"
                     onClick={() => updateParams({ tab: "critical", page: 1 })}
-                    style={{ flex: 1, textAlign: "center", cursor: "pointer", border: "1px solid rgba(224, 0, 0, 0.15)" }}
+                    style={{
+                      flex: 1,
+                      textAlign: "center",
+                      cursor: "pointer",
+                      backgroundColor: tabId === "critical" ? "#FEE2E2" : "#FEF2F2",
+                      border: "1.5px solid #FCA5A5",
+                      transition: "all 0.15s ease-in-out",
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                    }}
                     title="Click to view Critical Issues"
                   >
-                    <Text variant="headingLg" as="p" fontWeight="bold" tone="critical">
-                      {criticalIssuesCount}
-                    </Text>
-                    <Text variant="bodySm" tone="subdued">
-                      Critical Issues ↗
-                    </Text>
+                    <BlockStack gap="050" align="center">
+                      <Text variant="headingLg" as="p" fontWeight="bold" tone="critical">
+                        {criticalIssuesCount}
+                      </Text>
+                      <InlineStack gap="100" align="center">
+                        <Text variant="bodySm" fontWeight="bold" tone="critical">
+                          Critical Issues
+                        </Text>
+                        <Text variant="bodySm" tone="critical">↗</Text>
+                      </InlineStack>
+                    </BlockStack>
                   </Box>
 
                   <Box
                     padding="300"
                     borderRadius="200"
-                    background="bg-surface-secondary"
                     onClick={() => updateParams({ tab: "warning", page: 1 })}
-                    style={{ flex: 1, textAlign: "center", cursor: "pointer", border: "1px solid rgba(235, 140, 0, 0.15)" }}
+                    style={{
+                      flex: 1,
+                      textAlign: "center",
+                      cursor: "pointer",
+                      backgroundColor: tabId === "warning" ? "#FEF3C7" : "#FFFBEB",
+                      border: "1.5px solid #FDE68A",
+                      transition: "all 0.15s ease-in-out",
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                    }}
                     title="Click to view Warning Issues"
                   >
-                    <Text variant="headingLg" as="p" fontWeight="bold" tone="caution">
-                      {warningIssuesCount}
-                    </Text>
-                    <Text variant="bodySm" tone="subdued">
-                      Warnings ↗
-                    </Text>
+                    <BlockStack gap="050" align="center">
+                      <Text variant="headingLg" as="p" fontWeight="bold" tone="caution">
+                        {warningIssuesCount}
+                      </Text>
+                      <InlineStack gap="100" align="center">
+                        <Text variant="bodySm" fontWeight="bold" tone="caution">
+                          Warnings
+                        </Text>
+                        <Text variant="bodySm" tone="caution">↗</Text>
+                      </InlineStack>
+                    </BlockStack>
                   </Box>
 
                   <Box
                     padding="300"
                     borderRadius="200"
-                    background="bg-surface-secondary"
                     onClick={() => updateParams({ tab: "resolved", page: 1 })}
-                    style={{ flex: 1, textAlign: "center", cursor: "pointer", border: "1px solid rgba(0, 160, 0, 0.15)" }}
+                    style={{
+                      flex: 1,
+                      textAlign: "center",
+                      cursor: "pointer",
+                      backgroundColor: tabId === "resolved" ? "#DCFCE7" : "#F0FDF4",
+                      border: "1.5px solid #86EFAC",
+                      transition: "all 0.15s ease-in-out",
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                    }}
                     title="Click to view Resolved Issues"
                   >
-                    <Text variant="headingLg" as="p" fontWeight="bold" tone="success">
-                      {resolvedIssuesCount}
-                    </Text>
-                    <Text variant="bodySm" tone="subdued">
-                      Resolved ↗
-                    </Text>
+                    <BlockStack gap="050" align="center">
+                      <Text variant="headingLg" as="p" fontWeight="bold" tone="success">
+                        {resolvedIssuesCount}
+                      </Text>
+                      <InlineStack gap="100" align="center">
+                        <Text variant="bodySm" fontWeight="bold" tone="success">
+                          Resolved
+                        </Text>
+                        <Text variant="bodySm" tone="success">↗</Text>
+                      </InlineStack>
+                    </BlockStack>
                   </Box>
                 </InlineStack>
 
