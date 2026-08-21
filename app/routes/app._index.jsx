@@ -253,6 +253,7 @@ export default function Dashboard() {
     pageSize,
   } = useLoaderData();
   const navigate = useNavigate();
+  const activeTab = TABS.find((t) => t.id === tabId) || TABS[0];
 
   const submit = useSubmit();
   const navigation = useNavigation();
