@@ -300,10 +300,14 @@ async function tick() {
  * `drainQueue()` from a cron/task instead.
  */
 export function ensureWorkerStarted() {
-  if (workerState.started) return;
-  workerState.started = true;
-  const timer = setTimeout(tick, 0);
-  timer?.unref?.();
+  if (!workerState.started) {
+    workerState.started = true;
+  }
+  if (!workerState.running) {
+    clearTimeout(workerState.timer);
+    const timer = setTimeout(tick, 0);
+    timer?.unref?.();
+  }
 }
 
 export async function getQueueSnapshot(storeId) {

@@ -1,7 +1,7 @@
 import prisma from "../db.server.js";
 import { normalizeSku, validateProductData } from "./validationEngine.server.js";
 import { syncProductIssues, updateStoreHealthScore } from "./issueEngine.server.js";
-import { notifyCriticalIfNeeded } from "./alertEngine.server.js";
+import { notifyCriticalIfNeeded, deliverPendingNotifications } from "./alertEngine.server.js";
 
 // Products fetched per Admin API page. Kept modest because each node also pulls
 // variants, media and metafields, and the GraphQL cost budget is shared.
@@ -333,6 +333,7 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL", opti
     // Aggregated, cooldown-limited: a scan that finds 500 criticals produces
     // one alert, not 500.
     await notifyCriticalIfNeeded(storeId);
+    await deliverPendingNotifications();
 
     await prisma.catalogScan.update({
       where: { id: scan.id },
@@ -424,6 +425,7 @@ export async function syncAndScanSingleProduct(admin, storeId, shopifyProductId)
 
   await updateStoreHealthScore(storeId);
   await notifyCriticalIfNeeded(storeId);
+  await deliverPendingNotifications();
 
   return fullProd;
 }
