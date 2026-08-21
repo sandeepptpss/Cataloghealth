@@ -193,8 +193,8 @@ export default function ValidationRules() {
       {rule.scopeType} {rule.scopeValue ? `(${rule.scopeValue})` : ""}
     </Badge>,
     <Text key={`checks-${rule.id}`} variant="bodySm">
-      Min Images: {rule.minImages} | Price: {rule.checkPrices ? "✓" : "✗"} | SKU:{" "}
-      {rule.checkSku ? "✓" : "✗"} | Metafields: {rule.requiredMetafields || "None"}
+      Min Images: {rule.minImages} | Price: {rule.checkPrices ? "Yes" : "No"} | SKU:{" "}
+      {rule.checkSku ? "Yes" : "No"} | Metafields: {rule.requiredMetafields || "None"}
     </Text>,
     <Badge key={`stat-${rule.id}`} tone={rule.isEnabled ? "success" : undefined}>
       {rule.isEnabled ? "Active" : "Disabled"}
