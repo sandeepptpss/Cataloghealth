@@ -1,4 +1,5 @@
-import { useLoaderData, useSubmit, useNavigation } from "react-router";
+import { useLoaderData, useSubmit, useNavigation, useRevalidator } from "react-router";
+import { useEffect } from "react";
 import {
   Page,
   Layout,
@@ -6,35 +7,58 @@ import {
   Text,
   Badge,
   DataTable,
-  Button,
+  Banner,
   BlockStack,
-  InlineStack,
+  ProgressBar,
+  Box,
 } from "@shopify/polaris";
 import { RefreshIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
-import { ensureStoreRecord, syncAndScanCatalog } from "../services/syncEngine.server.js";
+import { ensureStoreRecord } from "../services/syncEngine.server.js";
+import {
+  enqueueFullScan,
+  ensureWorkerStarted,
+  getQueueSnapshot,
+  JOB_PRIORITY,
+} from "../services/scanQueue.server.js";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
 
-  const scans = await prisma.catalogScan.findMany({
-    where: { storeId: store.id },
-    orderBy: { startedAt: "desc" },
-    take: 50,
-  });
+  ensureWorkerStarted();
 
-  return { store, scans };
+  const [scans, queue, activeJobs] = await Promise.all([
+    prisma.catalogScan.findMany({
+      where: { storeId: store.id },
+      orderBy: { startedAt: "desc" },
+      take: 50,
+    }),
+    getQueueSnapshot(store.id),
+    prisma.scanJob.findMany({
+      where: { storeId: store.id, status: { in: ["PENDING", "PROCESSING", "FAILED"] } },
+      orderBy: [{ priority: "asc" }, { runAt: "asc" }],
+      take: 25,
+    }),
+  ]);
+
+  return { store, scans, queue, activeJobs };
 };
 
 export const action = async ({ request }) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
   const formData = await request.formData();
 
   if (formData.get("actionType") === "TRIGGER_FULL_SCAN") {
-    await syncAndScanCatalog(admin, store.id, "MANUAL");
+    // Background job, not an inline crawl (spec #3, #22).
+    await enqueueFullScan({
+      storeId: store.id,
+      scanType: "MANUAL",
+      priority: JOB_PRIORITY.MANUAL_FULL_SCAN,
+    });
+    ensureWorkerStarted();
     return { success: true };
   }
 
@@ -42,44 +66,100 @@ export const action = async ({ request }) => {
 };
 
 export default function CatalogScans() {
-  const { scans } = useLoaderData();
+  const { scans, queue, activeJobs } = useLoaderData();
   const submit = useSubmit();
   const navigation = useNavigation();
+  const revalidator = useRevalidator();
   const isLoading = navigation.state !== "idle";
+
+  const scanRunning = queue.PENDING > 0 || queue.PROCESSING > 0;
+
+  // Scans run in the background, so poll while there is work in flight.
+  useEffect(() => {
+    if (!scanRunning) return;
+    const timer = setInterval(() => {
+      if (revalidator.state === "idle") revalidator.revalidate();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [scanRunning, revalidator]);
 
   const handleTriggerScan = () => {
     submit({ actionType: "TRIGGER_FULL_SCAN" }, { method: "post" });
   };
 
-  const rows = scans.map((scan) => [
-    <Badge key={`type-${scan.id}`} tone="info">
-      {scan.scanType}
+  const rows = scans.map((scan) => {
+    const total = scan.totalProducts || 0;
+    const pct = total > 0 ? Math.min(100, Math.round((scan.processedProducts / total) * 100)) : 0;
+
+    return [
+      <Badge key={`type-${scan.id}`} tone="info">
+        {scan.scanType}
+      </Badge>,
+      <Badge
+        key={`stat-${scan.id}`}
+        tone={
+          scan.status === "COMPLETED"
+            ? "success"
+            : scan.status === "IN_PROGRESS"
+            ? "attention"
+            : scan.status === "QUEUED"
+            ? "info"
+            : "critical"
+        }
+      >
+        {scan.status}
+      </Badge>,
+      <BlockStack key={`proc-${scan.id}`} gap="100">
+        <Text variant="bodyMd" fontWeight="bold">
+          {scan.processedProducts} / {total || "—"}
+        </Text>
+        {scan.status === "IN_PROGRESS" && total > 0 && (
+          <ProgressBar progress={pct} size="small" tone="primary" />
+        )}
+      </BlockStack>,
+      <Text
+        key={`fail-${scan.id}`}
+        variant="bodyMd"
+        tone={scan.failedProducts > 0 ? "critical" : "subdued"}
+      >
+        {scan.failedProducts}
+      </Text>,
+      <Text key={`start-${scan.id}`} variant="bodySm">
+        {new Date(scan.startedAt).toLocaleString()}
+      </Text>,
+      <Text key={`comp-${scan.id}`} variant="bodySm">
+        {scan.completedAt ? new Date(scan.completedAt).toLocaleString() : "Running..."}
+      </Text>,
+    ];
+  });
+
+  const jobRows = activeJobs.map((job) => [
+    <Text key={`t-${job.id}`} variant="bodyMd">
+      {job.jobType}
+    </Text>,
+    <Badge key={`p-${job.id}`} tone="info">
+      {`P${job.priority}`}
     </Badge>,
     <Badge
-      key={`stat-${scan.id}`}
+      key={`s-${job.id}`}
       tone={
-        scan.status === "COMPLETED"
-          ? "success"
-          : scan.status === "IN_PROGRESS"
+        job.status === "PROCESSING"
           ? "attention"
-          : scan.status === "QUEUED"
-          ? "info"
-          : "critical"
+          : job.status === "FAILED"
+          ? "critical"
+          : undefined
       }
     >
-      {scan.status}
+      {job.status}
     </Badge>,
-    <Text key={`proc-${scan.id}`} variant="bodyMd" fontWeight="bold">
-      {scan.processedProducts} / {scan.totalProducts || "—"}
+    <Text key={`a-${job.id}`} variant="bodySm">
+      {`${job.attempts}/${job.maxAttempts}`}
     </Text>,
-    <Text key={`fail-${scan.id}`} variant="bodyMd" tone={scan.failedProducts > 0 ? "critical" : "subdued"}>
-      {scan.failedProducts}
+    <Text key={`r-${job.id}`} variant="bodySm">
+      {new Date(job.runAt).toLocaleString()}
     </Text>,
-    <Text key={`start-${scan.id}`} variant="bodySm">
-      {new Date(scan.startedAt).toLocaleString()}
-    </Text>,
-    <Text key={`comp-${scan.id}`} variant="bodySm">
-      {scan.completedAt ? new Date(scan.completedAt).toLocaleString() : "Running..."}
+    <Text key={`e-${job.id}`} variant="bodySm" tone={job.lastError ? "critical" : "subdued"}>
+      {job.lastError ? job.lastError.slice(0, 120) : "—"}
     </Text>,
   ]);
 
@@ -88,21 +168,61 @@ export default function CatalogScans() {
       title="Catalog Audit Scan History"
       subtitle="Track background batch scans, webhook syncs, and manual audits"
       primaryAction={{
-        content: "Trigger Full Audit",
+        content: scanRunning ? "Scan in progress..." : "Trigger Full Audit",
         icon: RefreshIcon,
         loading: isLoading,
+        disabled: scanRunning,
         onClick: handleTriggerScan,
       }}
     >
       <Layout>
         <Layout.Section>
-          <Card padding="0">
-            <DataTable
-              columnContentTypes={["text", "text", "text", "text", "text", "text"]}
-              headings={["Scan Type", "Status", "Products Processed", "Failed", "Started At", "Completed At"]}
-              rows={rows}
-            />
-          </Card>
+          <BlockStack gap="400">
+            {scanRunning && (
+              <Banner tone="info" title="Background work in progress">
+                <p>
+                  {`${queue.PROCESSING} job(s) running, ${queue.PENDING} queued. This view refreshes automatically.`}
+                </p>
+              </Banner>
+            )}
+
+            {queue.FAILED > 0 && (
+              <Banner tone="warning" title={`${queue.FAILED} scan job(s) failed`}>
+                <p>
+                  Jobs retry with escalating delays and are marked failed after the
+                  final attempt. See the queue table below for the recorded error.
+                </p>
+              </Banner>
+            )}
+
+            <Card padding="0">
+              <Box padding="400">
+                <Text variant="headingMd" as="h3">
+                  Scan History
+                </Text>
+              </Box>
+              <DataTable
+                columnContentTypes={["text", "text", "text", "text", "text", "text"]}
+                headings={["Scan Type", "Status", "Products Processed", "Failed", "Started At", "Completed At"]}
+                rows={rows}
+              />
+            </Card>
+
+            {jobRows.length > 0 && (
+              <Card padding="0">
+                <Box padding="400">
+                  <Text variant="headingMd" as="h3">
+                    Scan Queue
+                  </Text>
+                </Box>
+                <DataTable
+                  columnContentTypes={["text", "text", "text", "text", "text", "text"]}
+                  headings={["Job Type", "Priority", "Status", "Attempts", "Runs At", "Last Error"]}
+                  rows={jobRows}
+                />
+              </Card>
+            )}
+          </BlockStack>
         </Layout.Section>
       </Layout>
     </Page>

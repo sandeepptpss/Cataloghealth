@@ -52,26 +52,34 @@ export const action = async ({ params, request }) => {
   const actionType = formData.get("actionType");
 
   if (actionType === "RESCAN_PRODUCT") {
-    const product = await prisma.product.findUnique({ where: { id: productId } });
-    if (product) {
-      await syncAndScanSingleProduct(admin, store.id, product.shopifyProductId);
+    // Scoped by storeId: never rescan a product belonging to another shop.
+    const product = await prisma.product.findFirst({
+      where: { id: productId, storeId: store.id },
+    });
+    if (!product) {
+      return { success: false, error: "Product not found." };
     }
+    // A single product is cheap enough to scan inline, which keeps the merchant's
+    // "Rescan" click immediately reflected in the page they are looking at.
+    await syncAndScanSingleProduct(admin, store.id, product.shopifyProductId);
     return { success: true };
   }
 
   if (actionType === "IGNORE_ISSUE") {
     const issueId = formData.get("issueId");
     if (issueId) {
-      const issue = await prisma.issue.findUnique({ where: { id: issueId } });
+      const issue = await prisma.issue.findFirst({
+        where: { id: issueId, storeId: store.id, productId },
+      });
       if (issue) {
         await prisma.issue.update({
-          where: { id: issueId },
+          where: { id: issue.id },
           data: { status: "IGNORED", ignoredAt: new Date() },
         });
         await prisma.issueHistory.create({
           data: {
             storeId: store.id,
-            issueId,
+            issueId: issue.id,
             previousStatus: issue.status,
             newStatus: "IGNORED",
             changeReason: "Ignored manually on product page",
@@ -86,16 +94,19 @@ export const action = async ({ params, request }) => {
   if (actionType === "UNIGNORE_ISSUE") {
     const issueId = formData.get("issueId");
     if (issueId) {
-      const issue = await prisma.issue.findUnique({ where: { id: issueId } });
+      const issue = await prisma.issue.findFirst({
+        where: { id: issueId, storeId: store.id, productId },
+      });
       if (issue) {
         await prisma.issue.update({
-          where: { id: issueId },
-          data: { status: "OPEN", ignoredAt: null },
+          where: { id: issue.id },
+          // resolvedAt is cleared too: an unignored issue is open, not resolved.
+          data: { status: "OPEN", ignoredAt: null, resolvedAt: null },
         });
         await prisma.issueHistory.create({
           data: {
             storeId: store.id,
-            issueId,
+            issueId: issue.id,
             previousStatus: issue.status,
             newStatus: "OPEN",
             changeReason: "Unignored manually on product page",
@@ -141,7 +152,7 @@ export default function ProductHealthDetail() {
     >
       {issue.severity}
     </Badge>,
-    <BlockStack key={`title-${issue.id}`} gap="1">
+    <BlockStack key={`title-${issue.id}`} gap="100">
       <Text variant="bodyMd" fontWeight="bold">
         {issue.title}
       </Text>
@@ -156,12 +167,12 @@ export default function ProductHealthDetail() {
           ? "attention"
           : issue.status === "RESOLVED"
           ? "success"
-          : "subdued"
+          : undefined
       }
     >
       {issue.status}
     </Badge>,
-    <InlineStack key={`act-${issue.id}`} gap="2">
+    <InlineStack key={`act-${issue.id}`} gap="200">
       {issue.status === "OPEN" && (
         <Button size="micro" tone="critical" onClick={() => handleIgnore(issue.id)}>
           Ignore
@@ -179,8 +190,8 @@ export default function ProductHealthDetail() {
     v.title || "Default",
     v.sku ? <Badge key={`sku-${v.id}`} tone="success">{v.sku}</Badge> : <Badge key={`sku-${v.id}`} tone="warning">Missing SKU</Badge>,
     v.barcode || "—",
-    `$${v.price}`,
-    v.compareAtPrice ? `$${v.compareAtPrice}` : "—",
+    `$${Number(v.price).toFixed(2)}`,
+    v.compareAtPrice ? `$${Number(v.compareAtPrice).toFixed(2)}` : "—",
   ]);
 
   return (
@@ -198,7 +209,7 @@ export default function ProductHealthDetail() {
       <Layout>
         <Layout.Section variant="oneThird">
           <Card padding="500">
-            <BlockStack gap="4" align="center">
+            <BlockStack gap="400" align="center">
               <Text variant="headingMd" as="h3" alignment="center">
                 Product Health Score
               </Text>

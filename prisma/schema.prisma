@@ -54,136 +54,148 @@ enum ScanStatus {
   FAILED
 }
 
-model Store {
-  id               String       @id @default(uuid()) @db.VarChar(64)
-  shopDomain       String       @unique @db.VarChar(191)
-  shopifyStoreId   String?      @db.VarChar(191)
-  plan             String       @default("free") @db.VarChar(100)
-  status           String       @default("active") @db.VarChar(50)
-  healthScore      Float        @default(100.0)
-  installedAt      DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+enum ScanJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
 
-  products         Product[]
-  variants         Variant[]
+model Store {
+  id             String   @id @default(uuid()) @db.VarChar(64)
+  shopDomain     String   @unique @db.VarChar(191)
+  shopifyStoreId String?  @db.VarChar(191)
+  adminEmail     String?  @db.VarChar(191)
+  plan           String   @default("free") @db.VarChar(100)
+  status         String   @default("active") @db.VarChar(50)
+  healthScore    Float    @default(100.0)
+  installedAt    DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  products        Product[]
+  variants        Variant[]
   validationRules ValidationRule[]
-  issues           Issue[]
-  issueHistories   IssueHistory[]
-  catalogScans     CatalogScan[]
-  skuIndexes       SkuIndex[]
-  webhookEvents    WebhookEvent[]
+  issues          Issue[]
+  issueHistories  IssueHistory[]
+  catalogScans    CatalogScan[]
+  scanJobs        ScanJob[]
+  skuIndexes      SkuIndex[]
+  webhookEvents   WebhookEvent[]
+  notifications   Notification[]
+  supportTickets  SupportTicket[]
 }
 
 model Product {
-  id               String       @id @default(uuid()) @db.VarChar(64)
-  storeId          String       @db.VarChar(64)
-  shopifyProductId String       @db.VarChar(191)
-  title            String       @db.VarChar(255)
-  handle           String       @db.VarChar(255)
-  bodyHtml         String?      @db.Text
-  vendor           String?      @db.VarChar(255)
-  productType      String?      @db.VarChar(255)
-  status           String       @default("ACTIVE") @db.VarChar(50)
-  imagesCount      Int          @default(0)
-  healthScore      Float        @default(100.0)
-  hasIssues        Boolean      @default(false)
-  syncedAt         DateTime     @default(now())
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id               String   @id @default(uuid()) @db.VarChar(64)
+  storeId          String   @db.VarChar(64)
+  shopifyProductId String   @db.VarChar(191)
+  title            String   @db.VarChar(255)
+  handle           String   @db.VarChar(255)
+  bodyHtml         String?  @db.Text
+  vendor           String?  @db.VarChar(255)
+  productType      String?  @db.VarChar(255)
+  status           String   @default("ACTIVE") @db.VarChar(50)
+  imagesCount      Int      @default(0)
+  healthScore      Float    @default(100.0)
+  hasIssues        Boolean  @default(false)
+  syncedAt         DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  store            Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  variants         Variant[]
-  metafields       Metafield[]
-  issues           Issue[]
-  skuIndexes       SkuIndex[]
+  store       Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variants    Variant[]
+  metafields  Metafield[]
+  issues      Issue[]
+  skuIndexes  SkuIndex[]
+  collections ProductCollection[]
 
   @@unique([storeId, shopifyProductId])
   @@index([storeId, status])
 }
 
 model Variant {
-  id               String       @id @default(uuid()) @db.VarChar(64)
-  storeId          String       @db.VarChar(64)
-  productId        String       @db.VarChar(64)
-  shopifyVariantId String       @db.VarChar(191)
-  title            String       @db.VarChar(255)
-  sku              String?      @db.VarChar(191)
-  normalizedSku    String?      @db.VarChar(191)
-  barcode          String?      @db.VarChar(191)
-  price            Float        @default(0.0)
-  compareAtPrice   Float?
-  inventoryQuantity Int         @default(0)
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id                String   @id @default(uuid()) @db.VarChar(64)
+  storeId           String   @db.VarChar(64)
+  productId         String   @db.VarChar(64)
+  shopifyVariantId  String   @db.VarChar(191)
+  title             String   @db.VarChar(255)
+  sku               String?  @db.VarChar(191)
+  normalizedSku     String?  @db.VarChar(191)
+  barcode           String?  @db.VarChar(191)
+  price             Float    @default(0.0)
+  compareAtPrice    Float?
+  inventoryQuantity Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  store            Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  product          Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
-  issues           Issue[]
-  skuIndexes       SkuIndex[]
+  store      Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  issues     Issue[]
+  skuIndexes SkuIndex[]
 
   @@unique([storeId, shopifyVariantId])
   @@index([storeId, normalizedSku])
 }
 
 model Metafield {
-  id               String       @id @default(uuid()) @db.VarChar(64)
-  productId        String       @db.VarChar(64)
-  namespace        String       @db.VarChar(64)
-  key              String       @db.VarChar(64)
-  value            String?      @db.Text
-  valueType        String?      @db.VarChar(50)
-  createdAt        DateTime     @default(now())
+  id        String   @id @default(uuid()) @db.VarChar(64)
+  productId String   @db.VarChar(64)
+  namespace String   @db.VarChar(64)
+  key       String   @db.VarChar(64)
+  value     String?  @db.Text
+  valueType String?  @db.VarChar(50)
+  createdAt DateTime @default(now())
 
-  product          Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([productId, namespace, key])
 }
 
 model ValidationRule {
-  id               String       @id @default(uuid()) @db.VarChar(64)
-  storeId          String       @db.VarChar(64)
-  name             String       @db.VarChar(255)
-  description      String?      @db.Text
-  priority         Int          @default(100)
-  isEnabled        Boolean      @default(true)
-  scopeType        String       @default("ALL") @db.VarChar(50)
-  scopeValue       String?      @db.VarChar(255)
-  requiredMetafields String?    @db.Text
-  minImages        Int          @default(1)
-  checkPrices      Boolean      @default(true)
-  checkSku         Boolean      @default(true)
-  checkBarcode     Boolean      @default(false)
-  checkDescription Boolean      @default(true)
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id                 String   @id @default(uuid()) @db.VarChar(64)
+  storeId            String   @db.VarChar(64)
+  name               String   @db.VarChar(255)
+  description        String?  @db.Text
+  priority           Int      @default(100)
+  isEnabled          Boolean  @default(true)
+  scopeType          String   @default("ALL") @db.VarChar(50)
+  scopeValue         String?  @db.VarChar(255)
+  requiredMetafields String?  @db.Text
+  minImages          Int      @default(1)
+  checkPrices        Boolean  @default(true)
+  checkSku           Boolean  @default(true)
+  checkBarcode       Boolean  @default(false)
+  checkDescription   Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  store            Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  issues           Issue[]
+  store  Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  issues Issue[]
 }
 
 model Issue {
-  id               String       @id @default(uuid()) @db.VarChar(64)
-  storeId          String       @db.VarChar(64)
-  productId        String       @db.VarChar(64)
-  variantId        String?      @db.VarChar(64)
-  ruleId           String?      @db.VarChar(64)
-  issueType        String       @db.VarChar(64)
-  fieldName        String       @default("") @db.VarChar(64)
-  severity         IssueSeverity @default(WARNING)
-  title            String       @db.VarChar(255)
-  description      String       @db.Text
-  status           IssueStatus  @default(OPEN)
-  lastSeenAt       DateTime     @default(now())
-  resolvedAt       DateTime?
-  ignoredAt        DateTime?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id          String        @id @default(uuid()) @db.VarChar(64)
+  storeId     String        @db.VarChar(64)
+  productId   String        @db.VarChar(64)
+  variantId   String?       @db.VarChar(64)
+  ruleId      String?       @db.VarChar(64)
+  issueType   String        @db.VarChar(64)
+  fieldName   String        @default("") @db.VarChar(64)
+  severity    IssueSeverity @default(WARNING)
+  title       String        @db.VarChar(255)
+  description String        @db.Text
+  status      IssueStatus   @default(OPEN)
+  lastSeenAt  DateTime      @default(now())
+  resolvedAt  DateTime?
+  ignoredAt   DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
-  store            Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  product          Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variant          Variant?     @relation(fields: [variantId], references: [id], onDelete: SetNull)
-  rule             ValidationRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
-  histories        IssueHistory[]
+  store     Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant   Variant?        @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  rule      ValidationRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  histories IssueHistory[]
 
   @@unique([storeId, productId, issueType, fieldName, variantId])
   @@index([storeId, status])
@@ -191,58 +203,152 @@ model Issue {
 }
 
 model IssueHistory {
-  id               String       @id @default(uuid()) @db.VarChar(64)
-  storeId          String       @db.VarChar(64)
-  issueId          String       @db.VarChar(64)
-  previousStatus   IssueStatus
-  newStatus        IssueStatus
-  changeReason     String       @db.VarChar(255)
-  createdAt        DateTime     @default(now())
+  id             String      @id @default(uuid()) @db.VarChar(64)
+  storeId        String      @db.VarChar(64)
+  issueId        String      @db.VarChar(64)
+  previousStatus IssueStatus
+  newStatus      IssueStatus
+  changeReason   String      @db.VarChar(255)
+  createdAt      DateTime    @default(now())
 
-  store            Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  issue            Issue        @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
 }
 
 model CatalogScan {
-  id                String       @id @default(uuid()) @db.VarChar(64)
-  storeId           String       @db.VarChar(64)
-  scanType          ScanType     @default(MANUAL)
-  status            ScanStatus   @default(QUEUED)
-  totalProducts     Int          @default(0)
-  processedProducts Int          @default(0)
-  failedProducts    Int          @default(0)
-  lastCursor        String?      @db.VarChar(255)
-  startedAt         DateTime     @default(now())
+  id                String     @id @default(uuid()) @db.VarChar(64)
+  storeId           String     @db.VarChar(64)
+  scanType          ScanType   @default(MANUAL)
+  status            ScanStatus @default(QUEUED)
+  totalProducts     Int        @default(0)
+  processedProducts Int        @default(0)
+  failedProducts    Int        @default(0)
+  lastCursor        String?    @db.VarChar(255)
+  startedAt         DateTime   @default(now())
   completedAt       DateTime?
 
-  store             Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 }
 
 model SkuIndex {
-  id               String       @id @default(uuid()) @db.VarChar(64)
-  storeId          String       @db.VarChar(64)
-  normalizedSku    String       @db.VarChar(191)
-  productId        String       @db.VarChar(64)
-  variantId        String       @db.VarChar(64)
-  shopifyVariantId String       @db.VarChar(191)
-  createdAt        DateTime     @default(now())
+  id               String   @id @default(uuid()) @db.VarChar(64)
+  storeId          String   @db.VarChar(64)
+  normalizedSku    String   @db.VarChar(191)
+  productId        String   @db.VarChar(64)
+  variantId        String   @db.VarChar(64)
+  shopifyVariantId String   @db.VarChar(191)
+  createdAt        DateTime @default(now())
 
-  store            Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  product          Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variant          Variant      @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  store   Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant Variant @relation(fields: [variantId], references: [id], onDelete: Cascade)
 
   @@index([storeId, normalizedSku])
 }
 
 model WebhookEvent {
-  id               String       @id @default(uuid()) @db.VarChar(64)
-  eventId          String       @unique @db.VarChar(191)
-  topic            String       @db.VarChar(100)
-  storeId          String?      @db.VarChar(64)
-  status           String       @default("RECEIVED") @db.VarChar(50)
-  payload          String?      @db.Text
-  processedAt      DateTime?
-  createdAt        DateTime     @default(now())
+  id          String    @id @default(uuid()) @db.VarChar(64)
+  eventId     String    @unique @db.VarChar(191)
+  topic       String    @db.VarChar(100)
+  storeId     String?   @db.VarChar(64)
+  status      String    @default("RECEIVED") @db.VarChar(50)
+  payload     String?   @db.Text
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
 
-  store            Store?       @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  store Store? @relation(fields: [storeId], references: [id], onDelete: SetNull)
+}
+
+/// Durable job queue backing the monitoring engine. Webhooks only enqueue rows
+/// here and return 200 immediately; the worker drains them by priority.
+/// Priority follows the spec: 1 = webhook product scan ... 4 = scheduled scan.
+model ScanJob {
+  id               String        @id @default(uuid()) @db.VarChar(64)
+  storeId          String        @db.VarChar(64)
+  jobType          String        @db.VarChar(50)
+  scanType         ScanType      @default(WEBHOOK)
+  priority         Int           @default(4)
+  status           ScanJobStatus @default(PENDING)
+  shopifyProductId String?       @db.VarChar(191)
+  /// Debounce target: the job is invisible to the worker until this moment.
+  runAt            DateTime      @default(now())
+  attempts         Int           @default(0)
+  maxAttempts      Int           @default(3)
+  lastError        String?       @db.Text
+  lockToken        String?       @db.VarChar(64)
+  lockedAt         DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAt, priority])
+  @@index([storeId, jobType, status])
+  @@index([lockToken])
+}
+
+/// Collection membership, mirrored locally so COLLECTION-scoped validation
+/// rules can be evaluated without an extra Admin API call per product
+/// (spec #13, #14).
+model ProductCollection {
+  id                  String   @id @default(uuid()) @db.VarChar(64)
+  productId           String   @db.VarChar(64)
+  shopifyCollectionId String   @db.VarChar(191)
+  handle              String   @db.VarChar(255)
+  title               String   @db.VarChar(255)
+  createdAt           DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, shopifyCollectionId])
+  @@index([handle])
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+/// Aggregated merchant alerts (spec #26).
+///
+/// One row is one digest covering many issues - never one row per issue, which
+/// is what turns 5,000 new issues into 5,000 emails.
+model Notification {
+  id            String             @id @default(uuid()) @db.VarChar(64)
+  storeId       String             @db.VarChar(64)
+  /// DAILY_DIGEST | CRITICAL_ALERT
+  type          String             @db.VarChar(50)
+  title         String             @db.VarChar(255)
+  body          String             @db.Text
+  criticalCount Int                @default(0)
+  warningCount  Int                @default(0)
+  infoCount     Int                @default(0)
+  /// Upper bound of the window this digest covers, so the next one starts here
+  /// and no issue is counted twice.
+  windowEnd     DateTime
+  status        NotificationStatus @default(PENDING)
+  sentAt        DateTime?
+  createdAt     DateTime           @default(now())
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, type, createdAt])
+  @@index([status])
+}
+
+model SupportTicket {
+  id            String   @id @default(uuid()) @db.VarChar(64)
+  storeId       String   @db.VarChar(64)
+  subject       String   @db.VarChar(255)
+  message       String   @db.Text
+  merchantEmail String   @db.VarChar(191)
+  status        String   @default("OPEN") @db.VarChar(50)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
 }

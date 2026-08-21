@@ -7,7 +7,20 @@ const SEVERITY_WEIGHTS = {
   INFO: 3,
 };
 
-export async function syncProductIssues(storeId, productId, detectedIssues) {
+/**
+ * Reconcile the freshly detected issues for one product against what is already
+ * stored: touch the ones still failing, resolve the ones that now pass, and
+ * leave IGNORED issues alone (spec #8).
+ *
+ * `updateStoreScore` is disabled by batch callers (full scans) so the expensive
+ * store-wide aggregation runs once at the end instead of once per product.
+ */
+export async function syncProductIssues(
+  storeId,
+  productId,
+  detectedIssues,
+  { updateStoreScore = true } = {},
+) {
   const existingIssues = await prisma.issue.findMany({
     where: {
       storeId,
@@ -61,7 +74,9 @@ export async function syncProductIssues(storeId, productId, detectedIssues) {
           productId,
           variantId: detected.variantId || null,
           issueType: detected.issueType,
-          fieldName: detected.fieldName || null,
+          // fieldName is NOT NULL in the schema (defaults to ""), so an empty
+          // field name must be coerced to "" and never to null.
+          fieldName: detected.fieldName || "",
           severity: detected.severity,
           title: detected.title,
           description: detected.description,
@@ -104,15 +119,21 @@ export async function syncProductIssues(storeId, productId, detectedIssues) {
     }
   }
 
-  return await calculateAndSaveHealthScores(storeId, productId);
+  return await calculateAndSaveHealthScores(storeId, productId, { updateStoreScore });
 }
 
-export async function calculateAndSaveHealthScores(storeId, productId) {
+export async function calculateAndSaveHealthScores(
+  storeId,
+  productId,
+  { updateStoreScore = true } = {},
+) {
   const activeIssues = await prisma.issue.findMany({
     where: {
+      storeId,
       productId,
       status: "OPEN",
     },
+    select: { severity: true },
   });
 
   let scoreDeduction = 0;
@@ -131,18 +152,23 @@ export async function calculateAndSaveHealthScores(storeId, productId) {
     },
   });
 
-  await updateStoreHealthScore(storeId);
+  if (updateStoreScore) {
+    await updateStoreHealthScore(storeId);
+  }
 
   return { productScore, activeIssuesCount: activeIssues.length };
 }
 
 export async function updateStoreHealthScore(storeId) {
-  const products = await prisma.product.findMany({
+  // Aggregate in the database: loading every product row to average one float
+  // does not survive a 100k-product catalog.
+  const agg = await prisma.product.aggregate({
     where: { storeId },
-    select: { healthScore: true },
+    _avg: { healthScore: true },
+    _count: { _all: true },
   });
 
-  if (products.length === 0) {
+  if (agg._count._all === 0) {
     await prisma.store.update({
       where: { id: storeId },
       data: { healthScore: 100.0 },
@@ -150,8 +176,7 @@ export async function updateStoreHealthScore(storeId) {
     return 100.0;
   }
 
-  const totalScoreSum = products.reduce((acc, p) => acc + p.healthScore, 0);
-  const avgProductScore = totalScoreSum / products.length;
+  const avgProductScore = agg._avg.healthScore ?? 100.0;
 
   const criticalIssuesCount = await prisma.issue.count({
     where: {

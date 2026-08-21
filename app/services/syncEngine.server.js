@@ -1,7 +1,58 @@
 import prisma from "../db.server.js";
 import { normalizeSku, validateProductData } from "./validationEngine.server.js";
 import { syncProductIssues, updateStoreHealthScore } from "./issueEngine.server.js";
+import { notifyCriticalIfNeeded } from "./alertEngine.server.js";
 
+// Products fetched per Admin API page. Kept modest because each node also pulls
+// variants, media and metafields, and the GraphQL cost budget is shared.
+const PRODUCTS_PAGE_SIZE = 25;
+// Local products revalidated per batch during the validation pass.
+const VALIDATION_BATCH_SIZE = 200;
+// Max other products revalidated when a SKU stops/starts being a duplicate.
+const DUPLICATE_FANOUT_LIMIT = 50;
+
+const PRODUCT_FIELDS = `#graphql
+  id
+  title
+  handle
+  descriptionHtml
+  vendor
+  productType
+  status
+  media(first: 50) {
+    nodes {
+      id
+      mediaContentType
+    }
+  }
+  variants(first: 100) {
+    nodes {
+      id
+      title
+      sku
+      barcode
+      price
+      compareAtPrice
+      inventoryQuantity
+    }
+  }
+  metafields(first: 100) {
+    nodes {
+      id
+      namespace
+      key
+      value
+      type
+    }
+  }
+  collections(first: 50) {
+    nodes {
+      id
+      handle
+      title
+    }
+  }
+`;
 
 const PRODUCTS_QUERY = `#graphql
   query getCatalogProducts($first: Int!, $after: String) {
@@ -12,38 +63,7 @@ const PRODUCTS_QUERY = `#graphql
       }
       edges {
         node {
-          id
-          title
-          handle
-          descriptionHtml
-          vendor
-          productType
-          status
-          media(first: 10) {
-            nodes {
-              id
-            }
-          }
-          variants(first: 50) {
-            nodes {
-              id
-              title
-              sku
-              barcode
-              price
-              compareAtPrice
-              inventoryQuantity
-            }
-          }
-          metafields(first: 20) {
-            nodes {
-              id
-              namespace
-              key
-              value
-              type
-            }
-          }
+          ${PRODUCT_FIELDS}
         }
       }
     }
@@ -53,41 +73,77 @@ const PRODUCTS_QUERY = `#graphql
 const SINGLE_PRODUCT_QUERY = `#graphql
   query getSingleProduct($id: ID!) {
     product(id: $id) {
-      id
-      title
-      handle
-      descriptionHtml
-      vendor
-      productType
-      status
-      media(first: 10) {
-        nodes {
-          id
-        }
-      }
-      variants(first: 50) {
-        nodes {
-          id
-          title
-          sku
-          barcode
-          price
-          compareAtPrice
-          inventoryQuantity
-        }
-      }
-      metafields(first: 20) {
-        nodes {
-          id
-          namespace
-          key
-          value
-          type
-        }
-      }
+      ${PRODUCT_FIELDS}
     }
   }
 `;
+
+/**
+ * Rate-limit aware Admin API call (spec #23).
+ *
+ * Shopify signals throttling with a THROTTLED error extension (GraphQL) or a
+ * 429/5xx status. Those are retried with the escalating delays from the spec;
+ * every other error is a permanent failure and is rethrown immediately so the
+ * caller does not burn its retry budget on a malformed query.
+ */
+const RETRY_DELAYS_MS = [10_000, 30_000, 60_000];
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function graphqlWithRetry(admin, query, options = {}) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) {
+      const delay = RETRY_DELAYS_MS[attempt - 1];
+      console.warn(
+        `[syncEngine] Shopify API throttled/unavailable, retry ${attempt} in ${delay / 1000}s`,
+      );
+      await sleep(delay);
+    }
+
+    let response;
+    try {
+      response = await admin.graphql(query, options);
+    } catch (error) {
+      // The client throws on non-2xx. Only throttling and transient server
+      // errors are worth retrying.
+      const status = error?.response?.status ?? error?.status;
+      if (status === 429 || (status >= 500 && status < 600)) {
+        lastError = error;
+        continue;
+      }
+      throw error;
+    }
+
+    if (response.status === 429 || response.status >= 500) {
+      lastError = new Error(`Shopify API responded ${response.status}`);
+      continue;
+    }
+
+    const json = await response.json();
+    const throttled = (json.errors || []).some(
+      (e) => e?.extensions?.code === "THROTTLED",
+    );
+
+    if (throttled) {
+      lastError = new Error("Shopify API throttled");
+      continue;
+    }
+
+    if (json.errors?.length) {
+      throw new Error(
+        `Shopify GraphQL error: ${json.errors.map((e) => e.message).join("; ")}`,
+      );
+    }
+
+    return json;
+  }
+
+  throw lastError ?? new Error("Shopify API request failed");
+}
 
 export async function ensureStoreRecord(shopDomain) {
   let store = await prisma.store.findUnique({
@@ -118,47 +174,76 @@ export async function ensureStoreRecord(shopDomain) {
         checkDescription: true,
       },
     });
+  } else if (store.status !== "active") {
+    // Re-install: reactivate rather than orphaning the existing catalog data.
+    store = await prisma.store.update({
+      where: { id: store.id },
+      data: { status: "active" },
+    });
   }
 
   return store;
 }
 
-export async function syncAndScanCatalog(admin, storeId, scanType = "FULL") {
-  const scan = await prisma.catalogScan.create({
-    data: {
-      storeId,
-      scanType,
-      status: "IN_PROGRESS",
-      startedAt: new Date(),
-    },
-  });
+/**
+ * Full catalog sync + scan, processed in batches with resumable progress.
+ *
+ * Pass 1 pages through the Admin API and upserts products/variants/metafields,
+ * saving the cursor after every batch so a crashed run resumes where it left
+ * off (spec #4). Pass 2 revalidates the local catalog in batches, so neither
+ * pass ever holds the whole catalog in memory.
+ */
+export async function syncAndScanCatalog(admin, storeId, scanType = "FULL", options = {}) {
+  const { resumeScanId = null } = options;
+
+  let scan;
+  if (resumeScanId) {
+    scan = await prisma.catalogScan.findFirst({
+      where: { id: resumeScanId, storeId },
+    });
+  }
+
+  if (scan) {
+    scan = await prisma.catalogScan.update({
+      where: { id: scan.id },
+      data: { status: "IN_PROGRESS" },
+    });
+  } else {
+    scan = await prisma.catalogScan.create({
+      data: {
+        storeId,
+        scanType,
+        status: "IN_PROGRESS",
+        startedAt: new Date(),
+      },
+    });
+  }
 
   try {
     let hasNextPage = true;
-    let endCursor = null;
-    let processedProducts = 0;
-    let failedProducts = 0;
+    // Resume from the last saved cursor so a restarted worker continues from
+    // its last position instead of rescanning the whole catalog.
+    let endCursor = scan.lastCursor || null;
+    let processedProducts = scan.processedProducts || 0;
+    let failedProducts = scan.failedProducts || 0;
 
     const rules = await prisma.validationRule.findMany({
       where: { storeId, isEnabled: true },
     });
 
+    // ---- Pass 1: sync catalog data from Shopify, batch by batch ----
     while (hasNextPage) {
-      const response = await admin.graphql(PRODUCTS_QUERY, {
+      const json = await graphqlWithRetry(admin, PRODUCTS_QUERY, {
         variables: {
-          first: 50,
+          first: PRODUCTS_PAGE_SIZE,
           after: endCursor,
         },
       });
 
-      const json = await response.json();
       const productsData = json.data?.products;
-
       if (!productsData) break;
 
-      const edges = productsData.edges || [];
-
-      for (const edge of edges) {
+      for (const edge of productsData.edges || []) {
         const p = edge.node;
         try {
           await upsertProductRecord(storeId, p);
@@ -172,50 +257,73 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL") {
       hasNextPage = productsData.pageInfo.hasNextPage;
       endCursor = productsData.pageInfo.endCursor;
 
+      // Progress is saved after every successful batch so the scan is resumable
+      // and the UI can show live counts.
       await prisma.catalogScan.update({
         where: { id: scan.id },
         data: {
           processedProducts,
           failedProducts,
+          totalProducts: processedProducts,
           lastCursor: endCursor,
         },
       });
     }
 
-    const skuIndexMap = await buildCatalogSkuIndexMap(storeId);
-
-    const dbProducts = await prisma.product.findMany({
-      where: { storeId },
-      include: {
-        variants: true,
-        metafields: true,
-      },
-    });
-
-    for (const prod of dbProducts) {
-      const detectedIssues = validateProductData({
-        product: prod,
-        variants: prod.variants,
-        metafields: prod.metafields,
-        rules,
-        skuCountMap: skuIndexMap,
+    // ---- Pass 2: revalidate the local catalog in batches ----
+    let cursorId = null;
+    for (;;) {
+      const batch = await prisma.product.findMany({
+        where: { storeId },
+        include: { variants: true, metafields: true, collections: true },
+        orderBy: { id: "asc" },
+        take: VALIDATION_BATCH_SIZE,
+        ...(cursorId ? { skip: 1, cursor: { id: cursorId } } : {}),
       });
 
-      await syncProductIssues(storeId, prod.id, detectedIssues);
+      if (batch.length === 0) break;
+
+      const skuCountMap = await getSkuCountsForProducts(storeId, batch);
+
+      for (const prod of batch) {
+        const detectedIssues = validateProductData({
+          product: prod,
+          variants: prod.variants,
+          metafields: prod.metafields,
+          collections: prod.collections,
+          rules,
+          skuCountMap,
+        });
+
+        // The store score is recomputed once after the loop instead of once per
+        // product.
+        await syncProductIssues(storeId, prod.id, detectedIssues, {
+          updateStoreScore: false,
+        });
+      }
+
+      cursorId = batch[batch.length - 1].id;
+      if (batch.length < VALIDATION_BATCH_SIZE) break;
     }
 
     await updateStoreHealthScore(storeId);
+
+    // Aggregated, cooldown-limited: a scan that finds 500 criticals produces
+    // one alert, not 500.
+    await notifyCriticalIfNeeded(storeId);
 
     await prisma.catalogScan.update({
       where: { id: scan.id },
       data: {
         status: "COMPLETED",
         totalProducts: processedProducts,
+        processedProducts,
+        failedProducts,
         completedAt: new Date(),
       },
     });
 
-    return { success: true, processedProducts, failedProducts };
+    return { success: true, processedProducts, failedProducts, scanId: scan.id };
   } catch (error) {
     console.error("Scan engine error:", error);
     await prisma.catalogScan.update({
@@ -229,42 +337,150 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL") {
   }
 }
 
+/**
+ * Incremental scan of a single product (the webhook path).
+ *
+ * Also revalidates the other products that share an affected SKU, so that
+ * fixing a duplicate on one product resolves the DUPLICATE_SKU issue on its
+ * counterpart instead of leaving it open until the next full scan (spec #11).
+ */
 export async function syncAndScanSingleProduct(admin, storeId, shopifyProductId) {
   const rules = await prisma.validationRule.findMany({
     where: { storeId, isEnabled: true },
   });
 
-  const response = await admin.graphql(SINGLE_PRODUCT_QUERY, {
+  const json = await graphqlWithRetry(admin, SINGLE_PRODUCT_QUERY, {
     variables: { id: shopifyProductId },
   });
 
-  const json = await response.json();
   const p = json.data?.product;
 
-  if (!p) return null;
+  if (!p) {
+    // Product is gone from Shopify (deleted or unavailable): drop the local
+    // copy so its issues stop counting against the store score.
+    await deleteLocalProduct(storeId, shopifyProductId);
+    return null;
+  }
+
+  // SKUs this product held *before* the sync, so counterparts of a SKU that was
+  // just changed away from are revalidated too.
+  const previousSkus = await prisma.variant.findMany({
+    where: { storeId, product: { shopifyProductId } },
+    select: { normalizedSku: true },
+  });
 
   const dbProduct = await upsertProductRecord(storeId, p);
-  const skuIndexMap = await buildCatalogSkuIndexMap(storeId);
 
   const fullProd = await prisma.product.findUnique({
     where: { id: dbProduct.id },
-    include: { variants: true, metafields: true },
+    include: { variants: true, metafields: true, collections: true },
   });
+
+  const skuCountMap = await getSkuCountsForProducts(storeId, [fullProd]);
 
   const detectedIssues = validateProductData({
     product: fullProd,
     variants: fullProd.variants,
     metafields: fullProd.metafields,
+    collections: fullProd.collections,
     rules,
-    skuCountMap: skuIndexMap,
+    skuCountMap,
   });
 
-  await syncProductIssues(storeId, fullProd.id, detectedIssues);
+  await syncProductIssues(storeId, fullProd.id, detectedIssues, {
+    updateStoreScore: false,
+  });
+
+  const affectedSkus = new Set(
+    [
+      ...previousSkus.map((v) => v.normalizedSku),
+      ...fullProd.variants.map((v) => v.normalizedSku),
+    ].filter(Boolean),
+  );
+
+  await revalidateSkuCounterparts(storeId, affectedSkus, fullProd.id, rules);
+
+  await updateStoreHealthScore(storeId);
+  await notifyCriticalIfNeeded(storeId);
+
   return fullProd;
 }
 
+/**
+ * Revalidate the other products sharing any of `affectedSkus` so their
+ * DUPLICATE_SKU issues open and resolve in step with this product's changes.
+ */
+async function revalidateSkuCounterparts(storeId, affectedSkus, excludeProductId, rules) {
+  if (affectedSkus.size === 0) return;
+
+  const counterparts = await prisma.variant.findMany({
+    where: {
+      storeId,
+      normalizedSku: { in: [...affectedSkus] },
+      productId: { not: excludeProductId },
+    },
+    select: { productId: true },
+    distinct: ["productId"],
+    take: DUPLICATE_FANOUT_LIMIT,
+  });
+
+  if (counterparts.length === 0) return;
+
+  const products = await prisma.product.findMany({
+    where: { id: { in: counterparts.map((c) => c.productId) } },
+    include: { variants: true, metafields: true, collections: true },
+  });
+
+  const skuCountMap = await getSkuCountsForProducts(storeId, products);
+
+  for (const prod of products) {
+    const detected = validateProductData({
+      product: prod,
+      variants: prod.variants,
+      metafields: prod.metafields,
+      collections: prod.collections,
+      rules,
+      skuCountMap,
+    });
+
+    await syncProductIssues(storeId, prod.id, detected, { updateStoreScore: false });
+  }
+}
+
+export async function deleteLocalProduct(storeId, shopifyProductId) {
+  const product = await prisma.product.findUnique({
+    where: {
+      storeId_shopifyProductId: { storeId, shopifyProductId },
+    },
+    include: { variants: { select: { normalizedSku: true } } },
+  });
+
+  if (!product) return null;
+
+  const affectedSkus = new Set(
+    product.variants.map((v) => v.normalizedSku).filter(Boolean),
+  );
+
+  // Cascades remove the variants, metafields, SKU index rows and issues.
+  await prisma.product.delete({ where: { id: product.id } });
+
+  const rules = await prisma.validationRule.findMany({
+    where: { storeId, isEnabled: true },
+  });
+
+  // Removing a product can un-duplicate a SKU elsewhere in the catalog.
+  await revalidateSkuCounterparts(storeId, affectedSkus, product.id, rules);
+
+  await updateStoreHealthScore(storeId);
+  return product.id;
+}
+
 async function upsertProductRecord(storeId, p) {
-  const imagesCount = p.media?.nodes?.length || 0;
+  // Count image media only: a product whose sole media item is a video or a 3D
+  // model has no product image and must still raise MISSING_IMAGE.
+  const imagesCount = (p.media?.nodes || []).filter(
+    (m) => m?.mediaContentType === "IMAGE",
+  ).length;
 
   const product = await prisma.product.upsert({
     where: {
@@ -300,6 +516,8 @@ async function upsertProductRecord(storeId, p) {
   await prisma.skuIndex.deleteMany({ where: { productId: product.id } });
 
   const variants = p.variants?.nodes || [];
+  const liveVariantIds = [];
+
   for (const v of variants) {
     const rawSku = v.sku || "";
     const normSku = normalizeSku(rawSku);
@@ -312,6 +530,8 @@ async function upsertProductRecord(storeId, p) {
         },
       },
       update: {
+        // productId is included so a variant moved between products follows it.
+        productId: product.id,
         title: v.title,
         sku: rawSku,
         normalizedSku: normSku,
@@ -334,6 +554,8 @@ async function upsertProductRecord(storeId, p) {
       },
     });
 
+    liveVariantIds.push(variantRecord.id);
+
     if (normSku) {
       await prisma.skuIndex.create({
         data: {
@@ -347,9 +569,36 @@ async function upsertProductRecord(storeId, p) {
     }
   }
 
+  // Drop variants that no longer exist in Shopify. Without this they linger
+  // forever, keep raising issues nobody can fix, and inflate duplicate-SKU
+  // counts.
+  const orphanVariants = await prisma.variant.findMany({
+    where: {
+      productId: product.id,
+      ...(liveVariantIds.length ? { id: { notIn: liveVariantIds } } : {}),
+    },
+    select: { id: true },
+  });
+
+  if (orphanVariants.length) {
+    const orphanIds = orphanVariants.map((v) => v.id);
+
+    // Delete the variant's issues explicitly. Issue.variantId is ON DELETE SET
+    // NULL, so leaving this to the database would turn a variant-scoped issue
+    // into a null-variant row that no longer matches anything the validator
+    // emits: it could never be resolved, would sit OPEN forever dragging the
+    // health score down, and two such rows of the same issue type would collide
+    // on the issue identity key.
+    await prisma.issue.deleteMany({ where: { variantId: { in: orphanIds } } });
+    await prisma.variant.deleteMany({ where: { id: { in: orphanIds } } });
+  }
+
   const metafields = p.metafields?.nodes || [];
+  const liveMetafieldKeys = [];
+
   for (const mf of metafields) {
     if (!mf || !mf.namespace || !mf.key) continue;
+    liveMetafieldKeys.push(`${mf.namespace} ${mf.key}`);
     await prisma.metafield.upsert({
       where: {
         productId_namespace_key: {
@@ -372,21 +621,82 @@ async function upsertProductRecord(storeId, p) {
     });
   }
 
+  // Remove metafields deleted in Shopify, otherwise a required metafield stays
+  // "present" locally after the merchant clears it.
+  const staleMetafields = await prisma.metafield.findMany({
+    where: { productId: product.id },
+    select: { id: true, namespace: true, key: true },
+  });
+  const liveKeySet = new Set(liveMetafieldKeys);
+  const staleIds = staleMetafields
+    .filter((m) => !liveKeySet.has(`${m.namespace} ${m.key}`))
+    .map((m) => m.id);
+
+  if (staleIds.length) {
+    await prisma.metafield.deleteMany({ where: { id: { in: staleIds } } });
+  }
+
+  // Mirror collection membership so COLLECTION-scoped rules can be evaluated
+  // from the database instead of an Admin API call per product.
+  const collections = (p.collections?.nodes || []).filter((c) => c?.id);
+  for (const c of collections) {
+    await prisma.productCollection.upsert({
+      where: {
+        productId_shopifyCollectionId: {
+          productId: product.id,
+          shopifyCollectionId: c.id,
+        },
+      },
+      update: { handle: c.handle || "", title: c.title || "" },
+      create: {
+        productId: product.id,
+        shopifyCollectionId: c.id,
+        handle: c.handle || "",
+        title: c.title || "",
+      },
+    });
+  }
+
+  // A product removed from a collection must stop matching that rule.
+  await prisma.productCollection.deleteMany({
+    where: {
+      productId: product.id,
+      ...(collections.length
+        ? { shopifyCollectionId: { notIn: collections.map((c) => c.id) } }
+        : {}),
+    },
+  });
+
   return product;
 }
 
-async function buildCatalogSkuIndexMap(storeId) {
-  const indexes = await prisma.skuIndex.findMany({
-    where: { storeId },
-    select: { normalizedSku: true },
-  });
+/**
+ * Duplicate-SKU counts for just the SKUs used by `products`.
+ *
+ * Reading the whole store's SKU index on every webhook does not scale, so the
+ * local SKU index is queried for the handful of SKUs actually in play
+ * (spec #11).
+ */
+async function getSkuCountsForProducts(storeId, products) {
+  const skus = new Set();
+  for (const prod of products) {
+    for (const v of prod.variants || []) {
+      const norm = v.normalizedSku || normalizeSku(v.sku);
+      if (norm) skus.add(norm);
+    }
+  }
 
   const countMap = new Map();
-  for (const idx of indexes) {
-    const sku = idx.normalizedSku;
-    if (sku) {
-      countMap.set(sku, (countMap.get(sku) || 0) + 1);
-    }
+  if (skus.size === 0) return countMap;
+
+  const grouped = await prisma.skuIndex.groupBy({
+    by: ["normalizedSku"],
+    where: { storeId, normalizedSku: { in: [...skus] } },
+    _count: { _all: true },
+  });
+
+  for (const row of grouped) {
+    countMap.set(row.normalizedSku, row._count._all);
   }
 
   return countMap;

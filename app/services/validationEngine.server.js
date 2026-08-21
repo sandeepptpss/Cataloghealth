@@ -10,6 +10,9 @@
  * 6. INVALID_COMPARE_AT_PRICE (WARNING) - compare_at_price <= price
  * 7. MISSING_BARCODE (INFO) - barcode missing when rule enabled
  * 8. MISSING_METAFIELD (WARNING) - required custom metafield is missing or empty
+ *
+ * Rules are scoped by ALL, VENDOR, PRODUCT_TYPE or COLLECTION, and merged
+ * highest-priority-last so a specific rule overrides a general one (spec #15).
  */
 
 export function normalizeSku(sku) {
@@ -21,13 +24,17 @@ export function validateProductData({
   product,
   variants = [],
   metafields = [],
+  collections = [],
   rules = [],
   skuCountMap = new Map(), // map of normalizedSku -> count
 }) {
   const issues = [];
 
-  // Filter applicable rules by priority (lower number = higher priority)
-  const sortedRules = [...rules].sort((a, b) => (a.priority ?? 100) - (b.priority ?? 100));
+  // Priority 1 = highest, priority 100 = lowest (spec #15). Each matching rule
+  // overwrites the accumulated settings, so we apply them from LOWEST to
+  // HIGHEST priority: the highest-priority rule is applied last and therefore
+  // wins any conflict.
+  const sortedRules = [...rules].sort((a, b) => (b.priority ?? 100) - (a.priority ?? 100));
 
   // Determine applicable rule settings
   let minImages = 1;
@@ -48,6 +55,14 @@ export function validateProductData({
       matches = product.vendor?.toLowerCase() === rule.scopeValue.toLowerCase();
     } else if (rule.scopeType === "PRODUCT_TYPE" && rule.scopeValue) {
       matches = product.productType?.toLowerCase() === rule.scopeValue.toLowerCase();
+    } else if (rule.scopeType === "COLLECTION" && rule.scopeValue) {
+      // Merchants think in collection names but URLs use handles, so accept
+      // either. "Electronics", "electronics" and "electronics-1" all resolve.
+      const target = rule.scopeValue.trim().toLowerCase();
+      matches = collections.some(
+        (c) =>
+          c.handle?.toLowerCase() === target || c.title?.toLowerCase() === target,
+      );
     }
 
     if (matches) {
@@ -141,7 +156,7 @@ export function validateProductData({
 
       if (variant.compareAtPrice !== null && variant.compareAtPrice !== undefined) {
         const compareAtPrice = Number(variant.compareAtPrice);
-        if (compareAtPrice > 0 && compareAtPrice <= price) {
+        if (compareAtPrice > 0 && compareAtPrice <= price && price > 0) {
           issues.push({
             issueType: "INVALID_COMPARE_AT_PRICE",
             fieldName: "compareAtPrice",
@@ -171,8 +186,12 @@ export function validateProductData({
 
   // 4. Metafield Validation
   if (requiredMetafields.size > 0) {
+    // A metafield that exists but holds an empty value is still "missing" for
+    // catalog-quality purposes, so only non-empty values count as present.
     const existingMetafields = new Set(
-      metafields.map((m) => `${m.namespace}.${m.key}`.toLowerCase())
+      metafields
+        .filter((m) => (m.value ?? "").toString().trim() !== "")
+        .map((m) => `${m.namespace}.${m.key}`.toLowerCase())
     );
 
     for (const reqField of requiredMetafields) {

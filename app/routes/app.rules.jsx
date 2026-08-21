@@ -42,10 +42,13 @@ export const action = async ({ request }) => {
 
   if (actionType === "TOGGLE_RULE") {
     const ruleId = formData.get("ruleId");
-    const rule = await prisma.validationRule.findUnique({ where: { id: ruleId } });
+    // Scoped by storeId so one shop cannot toggle another shop's rule.
+    const rule = await prisma.validationRule.findFirst({
+      where: { id: ruleId, storeId: store.id },
+    });
     if (rule) {
       await prisma.validationRule.update({
-        where: { id: ruleId },
+        where: { id: rule.id },
         data: { isEnabled: !rule.isEnabled },
       });
     }
@@ -53,12 +56,22 @@ export const action = async ({ request }) => {
   }
 
   if (actionType === "CREATE_RULE") {
-    const name = formData.get("name");
+    const name = (formData.get("name") || "").toString().trim();
+    if (!name) {
+      return { success: false, error: "Rule name is required." };
+    }
     const description = formData.get("description") || "";
-    const priority = parseInt(formData.get("priority") || "50", 10);
+    const rawPriority = parseInt(formData.get("priority"), 10);
+    const priority = Number.isFinite(rawPriority) ? Math.min(100, Math.max(1, rawPriority)) : 50;
     const scopeType = formData.get("scopeType") || "ALL";
-    const scopeValue = formData.get("scopeValue") || "";
-    const minImages = parseInt(formData.get("minImages") || "1", 10);
+    const scopeValue = (formData.get("scopeValue") || "").toString().trim();
+
+    // A scoped rule with no target would silently match nothing.
+    if (scopeType !== "ALL" && !scopeValue) {
+      return { success: false, error: `A ${scopeType} rule needs a target value.` };
+    }
+    const rawMinImages = parseInt(formData.get("minImages"), 10);
+    const minImages = Number.isFinite(rawMinImages) ? Math.max(0, rawMinImages) : 1;
     const requiredMetafields = formData.get("requiredMetafields") || "";
 
     const checkPrices = formData.get("checkPrices") === "true";
@@ -89,7 +102,10 @@ export const action = async ({ request }) => {
   if (actionType === "DELETE_RULE") {
     const ruleId = formData.get("ruleId");
     if (ruleId) {
-      await prisma.validationRule.delete({ where: { id: ruleId } });
+      // deleteMany with a storeId filter is a no-op on someone else's rule.
+      await prisma.validationRule.deleteMany({
+        where: { id: ruleId, storeId: store.id },
+      });
     }
     return { success: true };
   }
@@ -165,7 +181,7 @@ export default function ValidationRules() {
     <Text key={`prio-${rule.id}`} variant="bodyMd" fontWeight="bold">
       #{rule.priority}
     </Text>,
-    <BlockStack key={`name-${rule.id}`} gap="1">
+    <BlockStack key={`name-${rule.id}`} gap="100">
       <Text variant="bodyMd" fontWeight="bold">
         {rule.name}
       </Text>
@@ -180,10 +196,10 @@ export default function ValidationRules() {
       Min Images: {rule.minImages} | Price: {rule.checkPrices ? "✓" : "✗"} | SKU:{" "}
       {rule.checkSku ? "✓" : "✗"} | Metafields: {rule.requiredMetafields || "None"}
     </Text>,
-    <Badge key={`stat-${rule.id}`} tone={rule.isEnabled ? "success" : "subdued"}>
+    <Badge key={`stat-${rule.id}`} tone={rule.isEnabled ? "success" : undefined}>
       {rule.isEnabled ? "Active" : "Disabled"}
     </Badge>,
-    <InlineStack key={`act-${rule.id}`} gap="2">
+    <InlineStack key={`act-${rule.id}`} gap="200">
       <Button size="micro" onClick={() => handleToggleRule(rule.id)}>
         {rule.isEnabled ? "Disable" : "Enable"}
       </Button>
@@ -191,6 +207,7 @@ export default function ValidationRules() {
         size="micro"
         tone="critical"
         icon={DeleteIcon}
+        accessibilityLabel={`Delete rule ${rule.name}`}
         onClick={() => handleDeleteRule(rule.id)}
       />
     </InlineStack>,
@@ -208,7 +225,7 @@ export default function ValidationRules() {
     >
       <Layout>
         <Layout.Section>
-          <BlockStack gap="4">
+          <BlockStack gap="400">
             <Banner tone="info">
               <p>
                 Validation rules are evaluated by priority (lower number = higher priority). Specific collection or vendor rules override global rules.
@@ -235,6 +252,7 @@ export default function ValidationRules() {
           content: "Save Rule",
           onClick: handleSaveRule,
           loading: isLoading,
+          disabled: !ruleName.trim() || (scopeType !== "ALL" && !scopeValue.trim()),
         }}
         secondaryActions={[
           {
@@ -270,6 +288,7 @@ export default function ValidationRules() {
               label="Scope"
               options={[
                 { label: "All Products (Global)", value: "ALL" },
+                { label: "Collection Specific", value: "COLLECTION" },
                 { label: "Vendor Specific", value: "VENDOR" },
                 { label: "Product Type Specific", value: "PRODUCT_TYPE" },
               ]}
@@ -281,7 +300,18 @@ export default function ValidationRules() {
                 label="Scope Target Value"
                 value={scopeValue}
                 onChange={setScopeValue}
-                placeholder={scopeType === "VENDOR" ? "e.g. Apple" : "e.g. Electronics"}
+                placeholder={
+                  scopeType === "VENDOR"
+                    ? "e.g. Apple"
+                    : scopeType === "COLLECTION"
+                    ? "Collection name or handle, e.g. Electronics"
+                    : "e.g. Electronics"
+                }
+                helpText={
+                  scopeType === "COLLECTION"
+                    ? "Matches either the collection title or its handle."
+                    : undefined
+                }
                 autoComplete="off"
               />
             )}

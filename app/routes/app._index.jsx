@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { useLoaderData, useSubmit, useNavigation } from "react-router";
+import { useLoaderData, useSubmit, useNavigation, useSearchParams } from "react-router";
 import {
   Page,
   Layout,
@@ -17,6 +16,7 @@ import {
   Icon,
   Box,
   Divider,
+  Pagination,
 } from "@shopify/polaris";
 import {
   CheckCircleIcon,
@@ -24,62 +24,104 @@ import {
   SearchIcon,
   ViewIcon,
 } from "@shopify/polaris-icons";
+import { useCallback, useEffect, useState } from "react";
 import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
-import { ensureStoreRecord, syncAndScanCatalog } from "../services/syncEngine.server.js";
+import { ensureStoreRecord } from "../services/syncEngine.server.js";
 import { calculateAndSaveHealthScores } from "../services/issueEngine.server.js";
+import {
+  enqueueFullScan,
+  ensureWorkerStarted,
+  getQueueSnapshot,
+  JOB_PRIORITY,
+} from "../services/scanQueue.server.js";
+
+const PAGE_SIZE = 50;
+
+const TABS = [
+  { id: "all", label: "Open", where: { status: "OPEN" } },
+  { id: "critical", label: "Critical", where: { status: "OPEN", severity: "CRITICAL" } },
+  { id: "warning", label: "Warnings", where: { status: "OPEN", severity: "WARNING" } },
+  { id: "info", label: "Info", where: { status: "OPEN", severity: "INFO" } },
+  { id: "resolved", label: "Resolved", where: { status: "RESOLVED" } },
+  { id: "ignored", label: "Ignored", where: { status: "IGNORED" } },
+];
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
 
-  const totalProducts = await prisma.product.count({ where: { storeId: store.id } });
-  const productsWithIssues = await prisma.product.count({
-    where: { storeId: store.id, hasIssues: true },
-  });
+  // Keep the queue worker alive on a long-running server.
+  ensureWorkerStarted();
 
-  const openIssuesCount = await prisma.issue.count({
-    where: { storeId: store.id, status: "OPEN" },
-  });
+  const url = new URL(request.url);
+  const tabId = TABS.some((t) => t.id === url.searchParams.get("tab"))
+    ? url.searchParams.get("tab")
+    : "all";
+  const query = (url.searchParams.get("q") || "").trim();
+  const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10) || 1);
 
-  const criticalIssuesCount = await prisma.issue.count({
-    where: { storeId: store.id, status: "OPEN", severity: "CRITICAL" },
-  });
+  const activeTab = TABS.find((t) => t.id === tabId);
 
-  const warningIssuesCount = await prisma.issue.count({
-    where: { storeId: store.id, status: "OPEN", severity: "WARNING" },
-  });
+  const searchFilter = query
+    ? {
+        OR: [
+          { title: { contains: query } },
+          { product: { title: { contains: query } } },
+          { variant: { sku: { contains: query } } },
+        ],
+      }
+    : {};
 
-  const infoIssuesCount = await prisma.issue.count({
-    where: { storeId: store.id, status: "OPEN", severity: "INFO" },
-  });
+  const issueWhere = { storeId: store.id, ...activeTab.where, ...searchFilter };
 
-  const resolvedIssuesCount = await prisma.issue.count({
-    where: { storeId: store.id, status: "RESOLVED" },
-  });
-
-  const ignoredIssuesCount = await prisma.issue.count({
-    where: { storeId: store.id, status: "IGNORED" },
-  });
-
-  const lastScan = await prisma.catalogScan.findFirst({
-    where: { storeId: store.id },
-    orderBy: { startedAt: "desc" },
-  });
-
-  const issues = await prisma.issue.findMany({
-    where: { storeId: store.id },
-    include: {
-      product: {
-        select: { title: true, shopifyProductId: true },
+  const [
+    totalProducts,
+    productsWithIssues,
+    openIssuesCount,
+    criticalIssuesCount,
+    warningIssuesCount,
+    infoIssuesCount,
+    resolvedIssuesCount,
+    ignoredIssuesCount,
+    alerts,
+    lastScan,
+    // The list and its count come from the same filter, so the tab badge and
+    // the table can no longer disagree.
+    filteredCount,
+    issues,
+    queue,
+  ] = await Promise.all([
+    prisma.product.count({ where: { storeId: store.id } }),
+    prisma.product.count({ where: { storeId: store.id, hasIssues: true } }),
+    prisma.issue.count({ where: { storeId: store.id, status: "OPEN" } }),
+    prisma.issue.count({ where: { storeId: store.id, status: "OPEN", severity: "CRITICAL" } }),
+    prisma.issue.count({ where: { storeId: store.id, status: "OPEN", severity: "WARNING" } }),
+    prisma.issue.count({ where: { storeId: store.id, status: "OPEN", severity: "INFO" } }),
+    prisma.issue.count({ where: { storeId: store.id, status: "RESOLVED" } }),
+    prisma.issue.count({ where: { storeId: store.id, status: "IGNORED" } }),
+    prisma.notification.findMany({
+      where: { storeId: store.id },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
+    prisma.catalogScan.findFirst({
+      where: { storeId: store.id },
+      orderBy: { startedAt: "desc" },
+    }),
+    prisma.issue.count({ where: issueWhere }),
+    prisma.issue.findMany({
+      where: issueWhere,
+      include: {
+        product: { select: { title: true, shopifyProductId: true } },
+        variant: { select: { title: true, sku: true } },
       },
-      variant: {
-        select: { title: true, sku: true },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-  });
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+    }),
+    getQueueSnapshot(store.id),
+  ]);
 
   return {
     store,
@@ -91,35 +133,52 @@ export const loader = async ({ request }) => {
     infoIssuesCount,
     resolvedIssuesCount,
     ignoredIssuesCount,
+    alerts,
     lastScan,
     issues,
+    filteredCount,
+    queue,
+    tabId,
+    query,
+    page,
+    pageSize: PAGE_SIZE,
   };
 };
 
 export const action = async ({ request }) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
   const formData = await request.formData();
   const actionType = formData.get("actionType");
 
   if (actionType === "RUN_SCAN") {
-    await syncAndScanCatalog(admin, store.id, "MANUAL");
-    return { success: true, message: "Full catalog scan completed successfully!" };
+    // Queue it: a full catalog crawl cannot run inside an HTTP request without
+    // timing out on a large store (spec #3, #18).
+    await enqueueFullScan({
+      storeId: store.id,
+      scanType: "MANUAL",
+      priority: JOB_PRIORITY.MANUAL_FULL_SCAN,
+    });
+    ensureWorkerStarted();
+    return { success: true, message: "Full catalog scan queued. Progress appears in Scan Logs." };
   }
 
   if (actionType === "IGNORE_ISSUE") {
     const issueId = formData.get("issueId");
     if (issueId) {
-      const issue = await prisma.issue.findUnique({ where: { id: issueId } });
+      // Scoped by storeId so one shop can never mutate another shop's issue.
+      const issue = await prisma.issue.findFirst({
+        where: { id: issueId, storeId: store.id },
+      });
       if (issue) {
         await prisma.issue.update({
-          where: { id: issueId },
+          where: { id: issue.id },
           data: { status: "IGNORED", ignoredAt: new Date() },
         });
         await prisma.issueHistory.create({
           data: {
             storeId: store.id,
-            issueId,
+            issueId: issue.id,
             previousStatus: issue.status,
             newStatus: "IGNORED",
             changeReason: "Ignored manually by merchant",
@@ -134,16 +193,18 @@ export const action = async ({ request }) => {
   if (actionType === "UNIGNORE_ISSUE" || actionType === "REOPEN_ISSUE") {
     const issueId = formData.get("issueId");
     if (issueId) {
-      const issue = await prisma.issue.findUnique({ where: { id: issueId } });
+      const issue = await prisma.issue.findFirst({
+        where: { id: issueId, storeId: store.id },
+      });
       if (issue) {
         await prisma.issue.update({
-          where: { id: issueId },
+          where: { id: issue.id },
           data: { status: "OPEN", ignoredAt: null, resolvedAt: null },
         });
         await prisma.issueHistory.create({
           data: {
             storeId: store.id,
-            issueId,
+            issueId: issue.id,
             previousStatus: issue.status,
             newStatus: "OPEN",
             changeReason: "Reopened manually by merchant",
@@ -169,16 +230,53 @@ export default function Dashboard() {
     infoIssuesCount,
     resolvedIssuesCount,
     ignoredIssuesCount,
+    alerts,
     lastScan,
     issues,
+    filteredCount,
+    queue,
+    tabId,
+    query,
+    page,
+    pageSize,
   } = useLoaderData();
 
   const submit = useSubmit();
   const navigation = useNavigation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isLoading = navigation.state !== "idle";
 
-  const [selectedTab, setSelectedTab] = useState(0);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchInput, setSearchInput] = useState(query);
+
+  // Keep the box in step when the URL changes from elsewhere (back button).
+  useEffect(() => {
+    setSearchInput(query);
+  }, [query]);
+
+  // Search runs on the server now, so debounce the round trip.
+  useEffect(() => {
+    if (searchInput === query) return;
+    const timer = setTimeout(() => {
+      const next = new URLSearchParams(searchParams);
+      if (searchInput.trim()) next.set("q", searchInput.trim());
+      else next.delete("q");
+      next.delete("page");
+      setSearchParams(next, { replace: true, preventScrollReset: true });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput, query, searchParams, setSearchParams]);
+
+  const updateParams = useCallback(
+    (changes) => {
+      const next = new URLSearchParams(searchParams);
+      for (const [key, value] of Object.entries(changes)) {
+        if (value === null) next.delete(key);
+        else next.set(key, String(value));
+      }
+      setSearchParams(next, { preventScrollReset: true });
+    },
+    [searchParams, setSearchParams],
+  );
 
   const handleRunScan = () => {
     submit({ actionType: "RUN_SCAN" }, { method: "post" });
@@ -192,34 +290,21 @@ export default function Dashboard() {
     submit({ actionType: "UNIGNORE_ISSUE", issueId }, { method: "post" });
   };
 
-  const tabs = [
-    { id: "all", content: `Open (${openIssuesCount})` },
-    { id: "critical", content: `Critical (${criticalIssuesCount})` },
-    { id: "warning", content: `Warnings (${warningIssuesCount})` },
-    { id: "info", content: `Info (${infoIssuesCount})` },
-    { id: "resolved", content: `Resolved (${resolvedIssuesCount})` },
-    { id: "ignored", content: `Ignored (${ignoredIssuesCount})` },
-  ];
+  const tabCounts = {
+    all: openIssuesCount,
+    critical: criticalIssuesCount,
+    warning: warningIssuesCount,
+    info: infoIssuesCount,
+    resolved: resolvedIssuesCount,
+    ignored: ignoredIssuesCount,
+  };
 
-  const filteredIssues = issues.filter((issue) => {
-    const activeTabId = tabs[selectedTab].id;
-    if (activeTabId === "all" && issue.status !== "OPEN") return false;
-    if (activeTabId === "critical" && (issue.status !== "OPEN" || issue.severity !== "CRITICAL")) return false;
-    if (activeTabId === "warning" && (issue.status !== "OPEN" || issue.severity !== "WARNING")) return false;
-    if (activeTabId === "info" && (issue.status !== "OPEN" || issue.severity !== "INFO")) return false;
-    if (activeTabId === "resolved" && issue.status !== "RESOLVED") return false;
-    if (activeTabId === "ignored" && issue.status !== "IGNORED") return false;
+  const tabs = TABS.map((t) => ({
+    id: t.id,
+    content: `${t.label} (${tabCounts[t.id]})`,
+  }));
 
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const titleMatch = issue.title.toLowerCase().includes(q);
-      const prodMatch = issue.product?.title?.toLowerCase().includes(q);
-      const skuMatch = issue.variant?.sku?.toLowerCase().includes(q);
-      return titleMatch || prodMatch || skuMatch;
-    }
-
-    return true;
-  });
+  const selectedTab = Math.max(0, TABS.findIndex((t) => t.id === tabId));
 
   const getScoreColor = (score) => {
     if (score >= 85) return "#108548";
@@ -228,8 +313,9 @@ export default function Dashboard() {
   };
 
   const scoreColor = getScoreColor(store.healthScore);
+  const scanRunning = queue.PENDING > 0 || queue.PROCESSING > 0;
 
-  const issueRows = filteredIssues.map((issue) => [
+  const issueRows = issues.map((issue) => [
     <Badge
       key={`sev-${issue.id}`}
       tone={
@@ -255,12 +341,12 @@ export default function Dashboard() {
           ? "attention"
           : issue.status === "RESOLVED"
           ? "success"
-          : "subdued"
+          : undefined
       }
     >
       {issue.status}
     </Badge>,
-    <InlineStack key={`act-${issue.id}`} gap="2">
+    <InlineStack key={`act-${issue.id}`} gap="200">
       {issue.status === "OPEN" && (
         <Button size="micro" tone="critical" onClick={() => handleIgnoreIssue(issue.id)}>
           Ignore
@@ -281,18 +367,32 @@ export default function Dashboard() {
     </InlineStack>,
   ]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredCount / pageSize));
+
   return (
     <Page
       title="Catalog Health Monitor"
       subtitle="Automated product catalog audits, quality metrics & issue tracking"
       primaryAction={{
-        content: isLoading ? "Scanning Catalog..." : "Run Full Catalog Scan",
+        content: scanRunning ? "Scan in progress..." : "Run Full Catalog Scan",
         icon: RefreshIcon,
         loading: isLoading,
+        disabled: scanRunning,
         onClick: handleRunScan,
       }}
     >
-      <BlockStack gap="5">
+      <BlockStack gap="500">
+        {scanRunning && (
+          <Banner tone="info" title="Catalog scan running in the background">
+            <p>
+              {queue.PROCESSING > 0
+                ? "Products are being synced and validated right now."
+                : `${queue.PENDING} scan job(s) queued.`}{" "}
+              Reload this page to see updated results.
+            </p>
+          </Banner>
+        )}
+
         {criticalIssuesCount > 0 && (
           <Banner
             title={`${criticalIssuesCount} Critical Catalog Issues Detected!`}
@@ -307,7 +407,7 @@ export default function Dashboard() {
         <Layout>
           <Layout.Section variant="oneThird">
             <Card padding="500">
-              <BlockStack gap="4" align="center">
+              <BlockStack gap="400" align="center">
                 <Text variant="headingMd" as="h3" alignment="center">
                   Store Health Score
                 </Text>
@@ -346,11 +446,11 @@ export default function Dashboard() {
 
           <Layout.Section variant="twoThirds">
             <Card padding="500">
-              <BlockStack gap="4">
+              <BlockStack gap="400">
                 <Text variant="headingMd" as="h3">
                   Catalog Overview Metrics
                 </Text>
-                <InlineStack gap="6" align="space-between">
+                <InlineStack gap="600" align="space-between">
                   <Box>
                     <Text variant="headingLg" as="p" fontWeight="bold">
                       {totalProducts}
@@ -414,24 +514,64 @@ export default function Dashboard() {
           </Layout.Section>
         </Layout>
 
+        {alerts.length > 0 && (
+          <Card padding="500">
+            <BlockStack gap="300">
+              <Text variant="headingMd" as="h3">
+                Recent Alerts
+              </Text>
+              <Text variant="bodySm" tone="subdued">
+                Issues are summarised into digests rather than one alert per issue.
+              </Text>
+              <BlockStack gap="200">
+                {alerts.map((alert) => (
+                  <Box key={alert.id} padding="300" borderRadius="200" background="bg-surface-secondary">
+                    <BlockStack gap="100">
+                      <InlineStack gap="200" blockAlign="center">
+                        <Badge tone={alert.criticalCount > 0 ? "critical" : "info"}>
+                          {alert.type === "CRITICAL_ALERT" ? "Critical" : "Daily"}
+                        </Badge>
+                        <Text variant="bodyMd" fontWeight="bold">
+                          {alert.title}
+                        </Text>
+                        <Badge tone={alert.status === "SENT" ? "success" : undefined}>
+                          {alert.status}
+                        </Badge>
+                      </InlineStack>
+                      <Text variant="bodySm" tone="subdued">
+                        {new Date(alert.createdAt).toLocaleString()}
+                      </Text>
+                    </BlockStack>
+                  </Box>
+                ))}
+              </BlockStack>
+            </BlockStack>
+          </Card>
+        )}
+
         <Card padding="0">
-          <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab}>
+          <Tabs
+            tabs={tabs}
+            selected={selectedTab}
+            onSelect={(index) => updateParams({ tab: TABS[index].id, page: null })}
+          >
             <Box padding="400">
-              <BlockStack gap="4">
+              <BlockStack gap="400">
                 <TextField
-                  label=""
+                  label="Search issues"
+                  labelHidden
                   placeholder="Search issues by title, product name or SKU..."
-                  value={searchQuery}
-                  onChange={setSearchQuery}
+                  value={searchInput}
+                  onChange={setSearchInput}
                   prefix={<Icon source={SearchIcon} />}
                   clearButton
-                  onClearButtonClick={() => setSearchQuery("")}
+                  onClearButtonClick={() => setSearchInput("")}
                   autoComplete="off"
                 />
 
-                {filteredIssues.length === 0 ? (
-                  <Box padding="800" align="center">
-                    <BlockStack align="center" inlineAlign="center" gap="2">
+                {issues.length === 0 ? (
+                  <Box padding="800">
+                    <BlockStack align="center" inlineAlign="center" gap="200">
                       <Icon source={CheckCircleIcon} tone="success" />
                       <Text variant="headingSm">No issues found!</Text>
                       <Text variant="bodySm" tone="subdued">
@@ -440,11 +580,24 @@ export default function Dashboard() {
                     </BlockStack>
                   </Box>
                 ) : (
-                  <DataTable
-                    columnContentTypes={["text", "text", "text", "text", "text"]}
-                    headings={["Severity", "Issue Title", "Product", "Status", "Actions"]}
-                    rows={issueRows}
-                  />
+                  <BlockStack gap="400">
+                    <DataTable
+                      columnContentTypes={["text", "text", "text", "text", "text"]}
+                      headings={["Severity", "Issue Title", "Product", "Status", "Actions"]}
+                      rows={issueRows}
+                    />
+                    {totalPages > 1 && (
+                      <InlineStack align="center" gap="200">
+                        <Pagination
+                          hasPrevious={page > 1}
+                          onPrevious={() => updateParams({ page: page - 1 })}
+                          hasNext={page < totalPages}
+                          onNext={() => updateParams({ page: page + 1 })}
+                          label={`Page ${page} of ${totalPages} — ${filteredCount} issues`}
+                        />
+                      </InlineStack>
+                    )}
+                  </BlockStack>
                 )}
               </BlockStack>
             </Box>

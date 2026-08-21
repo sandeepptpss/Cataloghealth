@@ -12,5 +12,20 @@ export const action = async ({ request }) => {
     await db.session.deleteMany({ where: { shop } });
   }
 
+  // Mark the store inactive and cancel queued work rather than deleting the
+  // catalog: a reinstall keeps its issue history, and the worker must not keep
+  // calling the Admin API with a revoked token.
+  const store = await db.store.findUnique({ where: { shopDomain: shop } });
+  if (store) {
+    await db.store.update({
+      where: { id: store.id },
+      data: { status: "uninstalled" },
+    });
+    await db.scanJob.updateMany({
+      where: { storeId: store.id, status: { in: ["PENDING", "PROCESSING"] } },
+      data: { status: "FAILED", lastError: "App uninstalled", lockToken: null },
+    });
+  }
+
   return new Response();
 };
