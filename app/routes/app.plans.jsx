@@ -23,7 +23,7 @@ import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { ensureStoreRecord } from "../services/syncEngine.server.js";
 
-const ADMIN_EMAIL = "sandeepptpss@gmail.com";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "sandeepptpss@gmail.com";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -122,53 +122,73 @@ export default function Plans() {
   const plans = [
     {
       id: "free",
-      name: "Free Tier",
+      name: "Starter Free",
       price: "$0",
       period: "/month",
-      badge: "Starter Plan",
+      badge: "Starter",
       badgeTone: "subdued",
       isPopular: false,
-      description: "Essential catalog quality audits for growing Shopify stores.",
+      description: "Essential health checks for boutique Shopify catalogs.",
       features: [
-        "Audit up to 250 products",
-        "Missing Image & SKU checks",
-        "Price & Barcode validation",
+        "Audit up to 100 products",
+        "Basic Missing SKU & Price checks",
         "Weekly manual catalog scan",
-        "Standard Email Support",
+        "Standard Dashboard Metrics",
+        "Community Support",
       ],
     },
     {
       id: "growth",
       name: "Growth Plan",
-      price: "$19",
+      price: "$29",
       period: "/month",
-      badge: "MOST POPULAR",
-      badgeTone: "highlight",
-      isPopular: true,
-      description: "Automated daily catalog monitoring and metafield compliance engine.",
+      badge: "Growing Stores",
+      badgeTone: "info",
+      isPopular: false,
+      description: "Automated daily catalog audits & duplicate SKU detection.",
       features: [
-        "Audit up to 2,500 products",
-        "Daily automated catalog scans",
-        "Required Metafield validation",
-        "Duplicate SKU detection engine",
+        "Audit up to 1,000 products",
+        "Automated Daily Catalog Scans",
+        "Missing Image & Zero-Price Detection",
+        "Duplicate SKU Detection Engine",
+        "Email Alert Notifications",
         "Priority Support (24h SLA)",
       ],
     },
     {
       id: "pro",
-      name: "Pro Enterprise",
-      price: "$49",
+      name: "Pro Advanced",
+      price: "$79",
       period: "/month",
-      badge: "Unlimited",
+      badge: "MOST POPULAR",
+      badgeTone: "highlight",
+      isPopular: true,
+      description: "Real-time webhook monitoring & custom metafield compliance engine.",
+      features: [
+        "Audit up to 10,000 products",
+        "Real-time Webhook Instant Scans",
+        "Required Metafield & Barcode Audit",
+        "Custom Validation Rule Builder",
+        "Instant Critical Email Alerts",
+        "Priority Support (4h SLA)",
+      ],
+    },
+    {
+      id: "enterprise",
+      name: "Plus Enterprise",
+      price: "$199",
+      period: "/month",
+      badge: "UNLIMITED",
       badgeTone: "success",
       isPopular: false,
-      description: "Unlimited product audits, custom priority builder & auto-fix rules.",
+      description: "Auto-fix safety layer, multi-location inventory & VIP dedicated support.",
       features: [
-        "Unlimited product audits",
-        "Real-time webhook sync & scans",
-        "Custom rule priority builder",
-        "Auto-fix safety layer",
-        "Dedicated Admin Support",
+        "Unlimited Product Audits",
+        "Auto-Fix Resolution Engine",
+        "Multi-Location Catalog Sync",
+        "Unlimited Webhook & On-Demand Scans",
+        "Custom Dedicated Rule Engineering",
+        "VIP 1-on-1 Admin Support",
       ],
     },
   ];
@@ -177,7 +197,7 @@ export default function Plans() {
     <Page
       fullWidth
       title="Plans & Merchant Support"
-      subtitle="Select the ideal monitoring tier for your Shopify store catalog"
+      subtitle="Select the ideal monitoring tier for your Shopify store catalog size and feature needs"
       primaryAction={{
         content: "Submit Support Ticket",
         icon: EmailIcon,
@@ -192,9 +212,9 @@ export default function Plans() {
         )}
 
         {/* Top Intro Banner */}
-        <Banner tone="info" title="Flexible Subscription Plans">
+        <Banner tone="info" title="Feature-Aligned Subscription Plans">
           <p>
-            Scale your product catalog quality assurance with automated daily scanning, required metafield enforcement, and real-time webhook updates. Current active store plan: <strong>{currentPlanId.toUpperCase()}</strong>.
+            Scale your product catalog quality assurance with automated daily scanning, required metafield enforcement, real-time webhook updates, and auto-fix rules. Current active store plan: <strong>{currentPlanId.toUpperCase()}</strong>.
           </p>
         </Banner>
 
@@ -205,7 +225,7 @@ export default function Plans() {
             return (
               <Grid.Cell
                 key={plan.id}
-                columnSpan={{ xs: 6, sm: 6, md: 4, lg: 4, xl: 4 }}
+                columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}
               >
                 <Card
                   padding="500"

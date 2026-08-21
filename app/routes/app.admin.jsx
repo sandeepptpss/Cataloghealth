@@ -34,8 +34,8 @@ import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { ensureStoreRecord } from "../services/syncEngine.server.js";
 
-const ADMIN_EMAIL = "sandeepptpss@gmail.com";
-const ADMIN_SHOP_PREFIX = "quickstart-749ac396";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "sandeepptpss@gmail.com";
+const ADMIN_SHOP_PREFIX = process.env.ADMIN_STORE_NAME || "quickstart-749ac396";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);

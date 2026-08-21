@@ -118,50 +118,69 @@ export default function PricingPlans() {
   const plans = [
     {
       id: "free",
-      name: "Free Tier",
+      name: "Starter Free",
       price: "$0",
       period: "/month",
       badge: "Starter",
       badgeTone: "subdued",
-      description: "Essential catalog quality checks for growing Shopify stores.",
+      description: "Essential health checks for boutique Shopify catalogs.",
       features: [
-        "Audit up to 250 products",
-        "Basic Missing Image & SKU checks",
-        "Price & Barcode validation",
+        "Audit up to 100 products",
+        "Basic Missing SKU & Price checks",
         "Weekly manual catalog scan",
-        "Standard Email Support",
+        "Standard Dashboard Metrics",
+        "Community Support",
       ],
     },
     {
       id: "growth",
       name: "Growth Plan",
-      price: "$19",
+      price: "$29",
       period: "/month",
-      badge: "Most Popular",
-      badgeTone: "highlight",
-      description: "Automated daily catalog monitoring and metafield compliance.",
+      badge: "Growing Stores",
+      badgeTone: "info",
+      description: "Automated daily catalog audits & duplicate SKU detection.",
       features: [
-        "Audit up to 2,500 products",
-        "Daily automated catalog audits",
-        "Required Metafield validation",
-        "Duplicate SKU detection engine",
-        "Priority Email Support (24h response)",
+        "Audit up to 1,000 products",
+        "Automated Daily Catalog Scans",
+        "Missing Image & Zero-Price Detection",
+        "Duplicate SKU Detection Engine",
+        "Email Alert Notifications",
+        "Priority Support (24h SLA)",
       ],
     },
     {
       id: "pro",
-      name: "Pro Enterprise",
-      price: "$49",
+      name: "Pro Advanced",
+      price: "$79",
       period: "/month",
-      badge: "Advanced",
-      badgeTone: "success",
-      description: "Unlimited product audits, custom priorities & auto-fix rules.",
+      badge: "Most Popular",
+      badgeTone: "highlight",
+      description: "Real-time webhook monitoring & custom metafield compliance engine.",
       features: [
-        "Unlimited product audits",
-        "Real-time webhook sync & scans",
-        "Custom rule priority builder",
-        "Auto-fix safety layer",
-        "Dedicated Support (sandeepptpss@gmail.com)",
+        "Audit up to 10,000 products",
+        "Real-time Webhook Instant Scans",
+        "Required Metafield & Barcode Audit",
+        "Custom Validation Rule Builder",
+        "Instant Critical Email Alerts",
+        "Priority Support (4h SLA)",
+      ],
+    },
+    {
+      id: "enterprise",
+      name: "Plus Enterprise",
+      price: "$199",
+      period: "/month",
+      badge: "Unlimited",
+      badgeTone: "success",
+      description: "Auto-fix safety layer, multi-location inventory & VIP dedicated support.",
+      features: [
+        "Unlimited Product Audits",
+        "Auto-Fix Resolution Engine",
+        "Multi-Location Catalog Sync",
+        "Unlimited Webhook & On-Demand Scans",
+        "Custom Dedicated Rule Engineering",
+        "VIP 1-on-1 Admin Support",
       ],
     },
   ];
@@ -190,7 +209,7 @@ export default function PricingPlans() {
             return (
               <Grid.Cell
                 key={plan.id}
-                columnSpan={{ xs: 6, sm: 6, md: 4, lg: 4, xl: 4 }}
+                columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}
               >
                 <Card padding="500">
                   <BlockStack gap="4">
