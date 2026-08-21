@@ -158,27 +158,49 @@ export async function ensureStoreRecord(shopDomain) {
         status: "active",
       },
     });
-
-    await prisma.validationRule.create({
-      data: {
-        storeId: store.id,
-        name: "Standard Catalog Audit Rule",
-        description: "Default rule for SKU, Price, Description, and Images validation",
-        priority: 10,
-        isEnabled: true,
-        scopeType: "ALL",
-        minImages: 1,
-        checkPrices: true,
-        checkSku: true,
-        checkBarcode: false,
-        checkDescription: true,
-      },
-    });
   } else if (store.status !== "active") {
     // Re-install: reactivate rather than orphaning the existing catalog data.
     store = await prisma.store.update({
       where: { id: store.id },
       data: { status: "active" },
+    });
+  }
+
+  // Ensure default validation rules exist for this store
+  const existingRulesCount = await prisma.validationRule.count({
+    where: { storeId: store.id },
+  });
+
+  if (existingRulesCount === 0) {
+    await prisma.validationRule.createMany({
+      data: [
+        {
+          storeId: store.id,
+          name: "Standard Catalog Audit Rule",
+          description: "Default rule for SKU, Price, Description, and Images validation",
+          priority: 10,
+          isEnabled: true,
+          scopeType: "ALL",
+          minImages: 1,
+          checkPrices: true,
+          checkSku: true,
+          checkBarcode: false,
+          checkDescription: true,
+        },
+        {
+          storeId: store.id,
+          name: "High Priority Image & Price Rule",
+          description: "Strict checks for product imagery and active non-zero pricing",
+          priority: 5,
+          isEnabled: true,
+          scopeType: "ALL",
+          minImages: 1,
+          checkPrices: true,
+          checkSku: true,
+          checkBarcode: false,
+          checkDescription: true,
+        },
+      ],
     });
   }
 
