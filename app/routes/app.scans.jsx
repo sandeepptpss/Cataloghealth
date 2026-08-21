@@ -1,4 +1,10 @@
-import { useLoaderData, useSubmit, useNavigation, useRevalidator } from "react-router";
+import {
+  useLoaderData,
+  useActionData,
+  useSubmit,
+  useNavigation,
+  useRevalidator,
+} from "react-router";
 import { useEffect } from "react";
 import {
   Page,
@@ -17,11 +23,13 @@ import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { ensureStoreRecord } from "../services/syncEngine.server.js";
 import {
+  checkManualScanAllowance,
   enqueueFullScan,
   ensureWorkerStarted,
   getQueueSnapshot,
   JOB_PRIORITY,
 } from "../services/scanQueue.server.js";
+import { serializablePlanConfig } from "../services/planEngine.server.js";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -43,7 +51,14 @@ export const loader = async ({ request }) => {
     }),
   ]);
 
-  return { store, scans, queue, activeJobs };
+  return {
+    store,
+    scans,
+    queue,
+    activeJobs,
+    planConfig: serializablePlanConfig(store.plan),
+    scanAllowance: await checkManualScanAllowance(store.id, store.plan),
+  };
 };
 
 export const action = async ({ request }) => {
@@ -52,6 +67,13 @@ export const action = async ({ request }) => {
   const formData = await request.formData();
 
   if (formData.get("actionType") === "TRIGGER_FULL_SCAN") {
+    // Same plan allowance as the dashboard button: this route must not be a way
+    // around it.
+    const allowance = await checkManualScanAllowance(store.id, store.plan);
+    if (!allowance.allowed) {
+      return { success: false, error: allowance.message };
+    }
+
     // Background job, not an inline crawl (spec #3, #22).
     await enqueueFullScan({
       storeId: store.id,
@@ -66,7 +88,8 @@ export const action = async ({ request }) => {
 };
 
 export default function CatalogScans() {
-  const { scans, queue, activeJobs } = useLoaderData();
+  const { scans, queue, activeJobs, planConfig, scanAllowance } = useLoaderData();
+  const actionData = useActionData();
   const submit = useSubmit();
   const navigation = useNavigation();
   const revalidator = useRevalidator();
@@ -130,6 +153,15 @@ export default function CatalogScans() {
       <Text key={`comp-${scan.id}`} variant="bodySm">
         {scan.completedAt ? new Date(scan.completedAt).toLocaleString() : "Running..."}
       </Text>,
+      scan.planLimited ? (
+        <Badge key={`lim-${scan.id}`} tone="warning">
+          Plan limit reached
+        </Badge>
+      ) : (
+        <Text key={`lim-${scan.id}`} variant="bodySm" tone="subdued">
+          —
+        </Text>
+      ),
     ];
   });
 
@@ -178,6 +210,29 @@ export default function CatalogScans() {
       <Layout>
         <Layout.Section>
           <BlockStack gap="400">
+            {actionData?.error && (
+              <Banner tone="warning" title="On-demand scan not queued">
+                <p>{actionData.error}</p>
+                <p>
+                  <a href="/app/plans" style={{ fontWeight: "bold" }}>
+                    Review subscription plans
+                  </a>
+                </p>
+              </Banner>
+            )}
+
+            <Banner tone="info" title={`${planConfig.name} plan coverage`}>
+              <p>
+                {`Audit limit: ${planConfig.maxProductsLabel}. On-demand scans: ${
+                  scanAllowance.limit === null
+                    ? "unlimited"
+                    : `${scanAllowance.remaining} of ${scanAllowance.limit} left in the current 7 days`
+                }. Automated daily scans: ${planConfig.dailyScan ? "included" : "not included"}. Real-time webhook scans: ${
+                  planConfig.webhookScan ? "included" : "not included"
+                }.`}
+              </p>
+            </Banner>
+
             {scanRunning && (
               <Banner tone="info" title="Background work in progress">
                 <p>
@@ -202,8 +257,16 @@ export default function CatalogScans() {
                 </Text>
               </Box>
               <DataTable
-                columnContentTypes={["text", "text", "text", "text", "text", "text"]}
-                headings={["Scan Type", "Status", "Products Processed", "Failed", "Started At", "Completed At"]}
+                columnContentTypes={["text", "text", "text", "text", "text", "text", "text"]}
+                headings={[
+                  "Scan Type",
+                  "Status",
+                  "Products Processed",
+                  "Failed",
+                  "Started At",
+                  "Completed At",
+                  "Coverage",
+                ]}
                 rows={rows}
               />
             </Card>

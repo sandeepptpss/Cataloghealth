@@ -21,19 +21,32 @@ import { PlusIcon, DeleteIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { ensureStoreRecord } from "../services/syncEngine.server.js";
-import { getPlanConfig } from "../services/planEngine.server.js";
+import {
+  featureUpgradeMessage,
+  getPlanConfig,
+  serializablePlanConfig,
+} from "../services/planEngine.server.js";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
-  const planConfig = getPlanConfig(store.plan);
 
   const rules = await prisma.validationRule.findMany({
     where: { storeId: store.id },
     orderBy: { priority: "asc" },
   });
 
-  return { store, rules, planConfig };
+  return {
+    store,
+    rules,
+    planConfig: serializablePlanConfig(store.plan),
+    upgradeMessages: {
+      customRules: featureUpgradeMessage("customRules"),
+      barcodeAudit: featureUpgradeMessage("barcodeAudit"),
+      requiredMetafields: featureUpgradeMessage("requiredMetafields"),
+      multiLocation: featureUpgradeMessage("multiLocation"),
+    },
+  };
 };
 
 export const action = async ({ request }) => {
@@ -60,10 +73,7 @@ export const action = async ({ request }) => {
 
   if (actionType === "CREATE_RULE") {
     if (!planConfig.customRules) {
-      return {
-        success: false,
-        error: "Custom Validation Rule Builder and Metafield/Barcode audits require Pro Advanced ($29/mo) or Plus Enterprise ($49/mo) plan.",
-      };
+      return { success: false, error: featureUpgradeMessage("customRules") };
     }
     const name = (formData.get("name") || "").toString().trim();
     if (!name) {
@@ -87,6 +97,10 @@ export const action = async ({ request }) => {
     const checkSku = formData.get("checkSku") === "true";
     const checkBarcode = formData.get("checkBarcode") === "true";
     const checkDescription = formData.get("checkDescription") === "true";
+    // Multi-location stock audit: storing it on a plan without the sync would
+    // promise a check that has no data behind it.
+    const checkInventory =
+      planConfig.multiLocation && formData.get("checkInventory") === "true";
 
     await prisma.validationRule.create({
       data: {
@@ -102,6 +116,7 @@ export const action = async ({ request }) => {
         checkSku,
         checkBarcode,
         checkDescription,
+        checkInventory,
         isEnabled: true,
       },
     });
@@ -123,7 +138,7 @@ export const action = async ({ request }) => {
 };
 
 export default function ValidationRules() {
-  const { rules, planConfig } = useLoaderData();
+  const { rules, planConfig, upgradeMessages } = useLoaderData();
   const submit = useSubmit();
   const navigation = useNavigation();
   const isLoading = navigation.state !== "idle";
@@ -143,6 +158,7 @@ export default function ValidationRules() {
   const [checkSku, setCheckSku] = useState(true);
   const [checkBarcode, setCheckBarcode] = useState(false);
   const [checkDescription, setCheckDescription] = useState(true);
+  const [checkInventory, setCheckInventory] = useState(false);
 
   const handleToggleRule = (ruleId) => {
     submit({ actionType: "TOGGLE_RULE", ruleId }, { method: "post" });
@@ -167,6 +183,7 @@ export default function ValidationRules() {
         checkSku: String(checkSku),
         checkBarcode: String(checkBarcode),
         checkDescription: String(checkDescription),
+        checkInventory: String(checkInventory),
       },
       { method: "post" }
     );
@@ -186,6 +203,7 @@ export default function ValidationRules() {
     setCheckSku(true);
     setCheckBarcode(false);
     setCheckDescription(true);
+    setCheckInventory(false);
   };
 
   const rows = rules.map((rule) => [
@@ -205,7 +223,9 @@ export default function ValidationRules() {
     </Badge>,
     <Text key={`checks-${rule.id}`} variant="bodySm">
       Min Images: {rule.minImages} | Price: {rule.checkPrices ? "Yes" : "No"} | SKU:{" "}
-      {rule.checkSku ? "Yes" : "No"} | Metafields: {rule.requiredMetafields || "None"}
+      {rule.checkSku ? "Yes" : "No"} | Barcode: {rule.checkBarcode ? "Yes" : "No"} |
+      Stock: {rule.checkInventory ? "Multi-location" : "No"} | Metafields:{" "}
+      {rule.requiredMetafields || "None"}
     </Text>,
     <Badge key={`stat-${rule.id}`} tone={rule.isEnabled ? "success" : undefined}>
       {rule.isEnabled ? "Active" : "Disabled"}
@@ -241,9 +261,8 @@ export default function ValidationRules() {
           <BlockStack gap="400">
             {!isCustomRulesAllowed && (
               <Banner tone="warning" title="Plan Upgrade Required for Custom Rules">
-                <p>
-                  Custom validation rule engineering, required metafield checks, and barcode audits are features reserved for <strong>Pro Advanced ($29/mo)</strong> and <strong>Plus Enterprise ($49/mo)</strong> plans.
-                </p>
+                <p>{upgradeMessages.customRules}</p>
+                <p>{upgradeMessages.requiredMetafields}</p>
                 <p>
                   <a href="/app/plans" style={{ fontWeight: "bold" }}>
                     Upgrade your subscription plan to enable custom audit rules.
@@ -377,6 +396,23 @@ export default function ValidationRules() {
               label="Validate Variant Barcode"
               checked={checkBarcode}
               onChange={setCheckBarcode}
+              disabled={!planConfig?.barcodeAudit}
+              helpText={
+                planConfig?.barcodeAudit
+                  ? undefined
+                  : upgradeMessages.barcodeAudit
+              }
+            />
+            <Checkbox
+              label="Validate multi-location stock (stocked somewhere & available)"
+              checked={checkInventory}
+              onChange={setCheckInventory}
+              disabled={!planConfig?.multiLocation}
+              helpText={
+                planConfig?.multiLocation
+                  ? "Uses per-location stock synced from Shopify."
+                  : upgradeMessages.multiLocation
+              }
             />
           </FormLayout>
         </Modal.Section>

@@ -13,7 +13,9 @@ function getPrismaClient() {
     !global.prismaGlobal ||
     !global.prismaGlobal.store ||
     !global.prismaGlobal.product ||
-    !global.prismaGlobal.supportTicket
+    !global.prismaGlobal.supportTicket ||
+    !global.prismaGlobal.supportMessage ||
+    !global.prismaGlobal.inventoryLevel
   ) {
     global.prismaGlobal = new PrismaClient();
   }

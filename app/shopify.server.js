@@ -11,7 +11,14 @@ const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY || "dummy_api_key",
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "dummy_api_secret",
   apiVersion: ApiVersion.July26,
-  scopes: process.env.SCOPES?.split(",") || ["read_products", "write_products"],
+  scopes:
+    process.env.SCOPES?.split(",") || [
+      "read_products",
+      "write_products",
+      // Multi-location stock for the enterprise catalog sync.
+      "read_inventory",
+      "read_locations",
+    ],
   appUrl: process.env.SHOPIFY_APP_URL || process.env.HOST || "http://localhost:3000",
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),

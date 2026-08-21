@@ -83,6 +83,7 @@ model Store {
   webhookEvents   WebhookEvent[]
   notifications   Notification[]
   supportTickets  SupportTicket[]
+  inventoryLevels InventoryLevel[]
 }
 
 model Product {
@@ -128,10 +129,11 @@ model Variant {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  store      Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  issues     Issue[]
-  skuIndexes SkuIndex[]
+  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product         Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  issues          Issue[]
+  skuIndexes      SkuIndex[]
+  inventoryLevels InventoryLevel[]
 
   @@unique([storeId, shopifyVariantId])
   @@index([storeId, normalizedSku])
@@ -166,6 +168,8 @@ model ValidationRule {
   checkSku           Boolean  @default(true)
   checkBarcode       Boolean  @default(false)
   checkDescription   Boolean  @default(true)
+  /// Multi-location stock audit (Plus Enterprise). Ignored on lower plans.
+  checkInventory     Boolean  @default(false)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -223,6 +227,9 @@ model CatalogScan {
   totalProducts     Int        @default(0)
   processedProducts Int        @default(0)
   failedProducts    Int        @default(0)
+  /// True when the catalog is larger than the plan's audit limit and the sync
+  /// stopped early, so the UI can say why products are missing from the audit.
+  planLimited       Boolean    @default(false)
   lastCursor        String?    @db.VarChar(255)
   startedAt         DateTime   @default(now())
   completedAt       DateTime?
@@ -305,6 +312,26 @@ model ProductCollection {
   @@index([handle])
 }
 
+/// Per-location stock mirrored from Shopify for the Multi-Location Catalog Sync
+/// feature (Plus Enterprise). Rows exist only for stores whose plan includes it.
+model InventoryLevel {
+  id                String   @id @default(uuid()) @db.VarChar(64)
+  storeId           String   @db.VarChar(64)
+  variantId         String   @db.VarChar(64)
+  shopifyLocationId String   @db.VarChar(191)
+  locationName      String   @default("") @db.VarChar(255)
+  available         Int      @default(0)
+  syncedAt          DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  store   Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variant Variant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([variantId, shopifyLocationId])
+  @@index([storeId, shopifyLocationId])
+}
+
 enum NotificationStatus {
   PENDING
   SENT
@@ -329,6 +356,9 @@ model Notification {
   /// and no issue is counted twice.
   windowEnd     DateTime
   status        NotificationStatus @default(PENDING)
+  /// Address the digest was addressed to, captured when the row is created so
+  /// delivery does not depend on the store's current settings.
+  recipient     String?            @db.VarChar(191)
   sentAt        DateTime?
   createdAt     DateTime           @default(now())
 
@@ -338,17 +368,50 @@ model Notification {
   @@index([status])
 }
 
+/// Merchant support conversation.
+///
+/// `message` is the opening message and `reply` mirrors the most recent admin
+/// response (both kept so existing views keep working); the full back-and-forth
+/// lives in SupportMessage so either side can follow up.
 model SupportTicket {
   id            String   @id @default(uuid()) @db.VarChar(64)
   storeId       String   @db.VarChar(64)
   subject       String   @db.VarChar(255)
   message       String   @db.Text
   merchantEmail String   @db.VarChar(191)
+  reply         String?  @db.Text
+  /// OPEN (awaiting support) | ANSWERED (support replied) | RESOLVED
   status        String   @default("OPEN") @db.VarChar(50)
+  /// Plan in force when the ticket was raised, so the promised support SLA can
+  /// be honoured even if the merchant changes plan afterwards.
+  planAtSubmission String? @db.VarChar(50)
+  repliedAt     DateTime?
+  lastMessageAt DateTime @default(now())
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store    Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  messages SupportMessage[]
 
   @@index([storeId])
+  @@index([status, lastMessageAt])
+}
+
+enum SupportSender {
+  MERCHANT
+  ADMIN
+}
+
+/// One message in a support conversation, in order.
+model SupportMessage {
+  id          String        @id @default(uuid()) @db.VarChar(64)
+  ticketId    String        @db.VarChar(64)
+  sender      SupportSender
+  body        String        @db.Text
+  authorEmail String?       @db.VarChar(191)
+  createdAt   DateTime      @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
 }

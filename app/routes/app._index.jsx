@@ -1,4 +1,11 @@
-import { useLoaderData, useSubmit, useNavigation, useSearchParams, useNavigate } from "react-router";
+import {
+  useLoaderData,
+  useActionData,
+  useSubmit,
+  useNavigation,
+  useSearchParams,
+  useNavigate,
+} from "react-router";
 import {
   Page,
   Layout,
@@ -32,15 +39,14 @@ import prisma from "../db.server.js";
 import { ensureStoreRecord } from "../services/syncEngine.server.js";
 import { calculateAndSaveHealthScores } from "../services/issueEngine.server.js";
 import {
+  checkManualScanAllowance,
   enqueueFullScan,
   ensureWorkerStarted,
   getQueueSnapshot,
   JOB_PRIORITY,
 } from "../services/scanQueue.server.js";
-import { getPlanConfig } from "../services/planEngine.server.js";
+import { serializablePlanConfig } from "../services/planEngine.server.js";
 import { autoFixIssue } from "../services/autoFixEngine.server.js";
-
-const PAGE_SIZE = 10;
 
 const TABS = [
   { id: "all", label: "Open", where: { status: "OPEN" } },
@@ -137,11 +143,13 @@ export const loader = async ({ request }) => {
     getQueueSnapshot(store.id),
   ]);
 
-  const planConfig = getPlanConfig(store.plan);
+  const planConfig = serializablePlanConfig(store.plan);
+  const scanAllowance = await checkManualScanAllowance(store.id, store.plan);
 
   return {
     store,
     planConfig,
+    scanAllowance,
     totalProducts,
     productsWithIssues,
     openIssuesCount,
@@ -180,6 +188,14 @@ export const action = async ({ request }) => {
   }
 
   if (actionType === "RUN_SCAN") {
+    // On-demand scans are a plan feature ("weekly manual catalog scan" on
+    // Starter, unlimited on Plus Enterprise), so the allowance is checked before
+    // anything is queued.
+    const allowance = await checkManualScanAllowance(store.id, store.plan);
+    if (!allowance.allowed) {
+      return { success: false, error: allowance.message };
+    }
+
     // Queue it: a full catalog crawl cannot run inside an HTTP request without
     // timing out on a large store (spec #3, #18).
     await enqueueFullScan({
@@ -250,6 +266,8 @@ export const action = async ({ request }) => {
 export default function Dashboard() {
   const {
     store,
+    planConfig,
+    scanAllowance,
     totalProducts,
     productsWithIssues,
     openIssuesCount,
@@ -269,6 +287,7 @@ export default function Dashboard() {
     pageSize,
   } = useLoaderData();
   const navigate = useNavigate();
+  const actionData = useActionData();
   const activeTab = TABS.find((t) => t.id === tabId) || TABS[0];
 
   const submit = useSubmit();
@@ -310,6 +329,10 @@ export default function Dashboard() {
 
   const handleRunScan = () => {
     submit({ actionType: "RUN_SCAN" }, { method: "post" });
+  };
+
+  const handleAutoFix = (issueId) => {
+    submit({ actionType: "AUTO_FIX_ISSUE", issueId }, { method: "post" });
   };
 
   const handleIgnoreIssue = (issueId) => {
@@ -377,6 +400,11 @@ export default function Dashboard() {
       {issue.status}
     </Badge>,
     <InlineStack key={`act-${issue.id}`} gap="200">
+      {issue.status === "OPEN" && planConfig.autoFix && (
+        <Button size="micro" tone="success" onClick={() => handleAutoFix(issue.id)}>
+          Auto-Fix ⚡
+        </Button>
+      )}
       {issue.status === "OPEN" && (
         <Button size="micro" tone="critical" onClick={() => handleIgnoreIssue(issue.id)}>
           Ignore
@@ -413,6 +441,42 @@ export default function Dashboard() {
       }}
     >
       <BlockStack gap="500">
+        {actionData?.error && (
+          <Banner tone="warning" title="Action not completed">
+            <p>{actionData.error}</p>
+            <p>
+              <a href="/app/plans" style={{ fontWeight: "bold" }}>
+                Review subscription plans
+              </a>
+            </p>
+          </Banner>
+        )}
+
+        {actionData?.success && actionData?.message && (
+          <Banner tone="success">
+            <p>{actionData.message}</p>
+          </Banner>
+        )}
+
+        {lastScan?.planLimited && (
+          <Banner tone="warning" title={`Audit limited to ${planConfig.maxProductsLabel}`}>
+            <p>
+              Your catalog is larger than the {planConfig.name} plan audits, so the
+              last scan stopped after {lastScan.processedProducts} product(s). Products
+              beyond the limit are not monitored - upgrade to widen the audit.
+            </p>
+          </Banner>
+        )}
+
+        {scanAllowance?.limit !== null && scanAllowance?.remaining === 0 && (
+          <Banner tone="info" title="On-demand scan allowance used">
+            <p>
+              The {planConfig.name} plan includes {scanAllowance.limit} on-demand scan(s)
+              per 7 days. Automated scanning is unaffected.
+            </p>
+          </Banner>
+        )}
+
         {scanRunning && (
           <Banner tone="info" title="Catalog scan running in the background">
             <p>
@@ -747,7 +811,7 @@ export default function Dashboard() {
                     )}
                     {searchInput && (
                       <Badge onDismiss={() => setSearchInput("")}>
-                        Query: "{searchInput}"
+                        Query: &quot;{searchInput}&quot;
                       </Badge>
                     )}
                   </InlineStack>

@@ -1,6 +1,7 @@
 import prisma from "../db.server.js";
 import { unauthenticated } from "../shopify.server.js";
 import { syncAndScanCatalog, syncAndScanSingleProduct, deleteLocalProduct } from "./syncEngine.server.js";
+import { getPlanConfig } from "./planEngine.server.js";
 
 /**
  * Durable scan queue + in-process worker (spec #18, #20, #22, #23).
@@ -124,6 +125,49 @@ export async function enqueueFullScan({
       runAt: new Date(),
     },
   });
+}
+
+// Window the plan's on-demand scan allowance is measured over.
+const MANUAL_SCAN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Plan allowance for merchant-triggered full scans ("Weekly manual catalog
+ * scan" on Starter, unlimited on Plus Enterprise).
+ *
+ * Scheduled and webhook scans are separate features and are never counted here,
+ * so a store keeps its automated coverage after using up its manual scans.
+ */
+export async function checkManualScanAllowance(storeId, plan) {
+  const planConfig = getPlanConfig(plan);
+  const limit = planConfig.manualScansPerWeek;
+
+  if (!Number.isFinite(limit)) {
+    return { allowed: true, limit: null, used: 0, remaining: null };
+  }
+
+  const since = new Date(Date.now() - MANUAL_SCAN_WINDOW_MS);
+  const used = await prisma.scanJob.count({
+    where: {
+      storeId,
+      jobType: JOB_TYPE.FULL_SCAN,
+      scanType: "MANUAL",
+      createdAt: { gte: since },
+    },
+  });
+
+  const remaining = Math.max(0, limit - used);
+
+  return {
+    allowed: remaining > 0,
+    limit,
+    used,
+    remaining,
+    message:
+      remaining > 0
+        ? null
+        : `Your ${planConfig.name} plan includes ${limit} on-demand catalog scan(s) per 7 days and you have used ${used}. ` +
+          "Automated scans continue to run; upgrade your plan for more on-demand scans.",
+  };
 }
 
 function randomToken() {

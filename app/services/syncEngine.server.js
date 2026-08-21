@@ -12,7 +12,30 @@ const VALIDATION_BATCH_SIZE = 200;
 // Max other products revalidated when a SKU stops/starts being a duplicate.
 const DUPLICATE_FANOUT_LIMIT = 50;
 
-const PRODUCT_FIELDS = `#graphql
+// Per-location stock, requested only for plans that include Multi-Location
+// Catalog Sync. It needs read_inventory/read_locations, so it is never asked
+// for on a plan that does not use it.
+const INVENTORY_LEVEL_FIELDS = `#graphql
+      inventoryItem {
+        id
+        inventoryLevels(first: 20) {
+          nodes {
+            id
+            location {
+              id
+              name
+            }
+            quantities(names: ["available"]) {
+              name
+              quantity
+            }
+          }
+        }
+      }
+`;
+
+function productFields(includeInventory) {
+  return `#graphql
   id
   title
   handle
@@ -35,6 +58,7 @@ const PRODUCT_FIELDS = `#graphql
       price
       compareAtPrice
       inventoryQuantity
+      ${includeInventory ? INVENTORY_LEVEL_FIELDS : ""}
     }
   }
   metafields(first: 100) {
@@ -54,8 +78,10 @@ const PRODUCT_FIELDS = `#graphql
     }
   }
 `;
+}
 
-const PRODUCTS_QUERY = `#graphql
+export function productsQuery(includeInventory) {
+  return `#graphql
   query getCatalogProducts($first: Int!, $after: String) {
     products(first: $first, after: $after) {
       pageInfo {
@@ -64,20 +90,24 @@ const PRODUCTS_QUERY = `#graphql
       }
       edges {
         node {
-          ${PRODUCT_FIELDS}
+          ${productFields(includeInventory)}
         }
       }
     }
   }
 `;
+}
 
-const SINGLE_PRODUCT_QUERY = `#graphql
+export function singleProductQuery(includeInventory) {
+  return `#graphql
   query getSingleProduct($id: ID!) {
     product(id: $id) {
-      ${PRODUCT_FIELDS}
+      ${productFields(includeInventory)}
     }
   }
 `;
+}
+
 
 /**
  * Rate-limit aware Admin API call (spec #23).
@@ -144,6 +174,86 @@ export async function graphqlWithRetry(admin, query, options = {}) {
   }
 
   throw lastError ?? new Error("Shopify API request failed");
+}
+
+/**
+ * Per-location stock needs read_inventory/read_locations. An app installed
+ * before those scopes were requested still has a valid token, so the first
+ * enterprise sync after the upgrade would fail on an access-denied error and
+ * take the whole scan with it. Instead the store is remembered as
+ * inventory-less and every later query for it skips those fields until the
+ * merchant re-authorises.
+ */
+const inventoryUnavailableStores = new Map();
+// The grant can arrive at any time, so the skip is a cooldown rather than a
+// permanent decision: without it a long-running process would keep skipping
+// inventory for the rest of its life after one denial.
+const INVENTORY_RETRY_AFTER_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Forget a store's inventory denial so the next sync tries the fields again.
+ * Called when the shop's scopes change (see webhooks/app/scopes_update).
+ */
+export function resetInventoryAccess(storeId) {
+  inventoryUnavailableStores.delete(storeId);
+}
+
+function isInventoryAccessError(error) {
+  const message = String(error?.message ?? error).toLowerCase();
+  return (
+    message.includes("access denied") ||
+    message.includes("read_inventory") ||
+    message.includes("read_locations") ||
+    message.includes("required access") ||
+    message.includes("not approved to access")
+  );
+}
+
+/** True when this store should be queried with the inventory fields. */
+function shouldSyncInventory(storeId, planConfig) {
+  if (!planConfig?.multiLocation) return false;
+
+  const deniedAt = inventoryUnavailableStores.get(storeId);
+  if (deniedAt !== undefined) {
+    if (Date.now() - deniedAt < INVENTORY_RETRY_AFTER_MS) return false;
+    inventoryUnavailableStores.delete(storeId);
+  }
+
+  // The generated Prisma client needs the InventoryLevel model; without it the
+  // sync would throw on every product.
+  if (!prisma.inventoryLevel) {
+    console.warn(
+      "[syncEngine] InventoryLevel model missing from the Prisma client - run `prisma generate`; multi-location sync is disabled",
+    );
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Run an Admin API query that may include inventory fields, retrying without
+ * them if the shop's token does not carry the inventory scopes.
+ */
+async function graphqlWithInventoryFallback(admin, storeId, buildQuery, options, wantInventory) {
+  try {
+    return {
+      json: await graphqlWithRetry(admin, buildQuery(wantInventory), options),
+      usedInventory: wantInventory,
+    };
+  } catch (error) {
+    if (!wantInventory || !isInventoryAccessError(error)) throw error;
+
+    inventoryUnavailableStores.set(storeId, Date.now());
+    console.warn(
+      `[syncEngine] store ${storeId} cannot read inventory levels (${error.message}); ` +
+        "multi-location sync needs the read_inventory and read_locations scopes granted on re-install",
+    );
+
+    return {
+      json: await graphqlWithRetry(admin, buildQuery(false), options),
+      usedInventory: false,
+    };
+  }
 }
 
 export async function ensureStoreRecord(shopDomain) {
@@ -249,10 +359,15 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL", opti
     let endCursor = scan.lastCursor || null;
     let processedProducts = scan.processedProducts || 0;
     let failedProducts = scan.failedProducts || 0;
+    // Set when the catalog is bigger than the plan allows, so the UI can say
+    // why the audit covers only part of the catalog instead of implying the
+    // rest is healthy.
+    let planLimited = scan.planLimited || false;
 
     const store = await prisma.store.findUnique({ where: { id: storeId } });
     const planConfig = getPlanConfig(store?.plan);
     const maxProducts = planConfig.maxProducts;
+    const syncInventory = shouldSyncInventory(storeId, planConfig);
 
     const rules = await prisma.validationRule.findMany({
       where: { storeId, isEnabled: true },
@@ -263,24 +378,31 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL", opti
       const remainingLimit = maxProducts - processedProducts;
       const fetchCount = Math.min(PRODUCTS_PAGE_SIZE, remainingLimit);
 
-      const json = await graphqlWithRetry(admin, PRODUCTS_QUERY, {
-        variables: {
-          first: fetchCount,
-          after: endCursor,
+      const { json, usedInventory } = await graphqlWithInventoryFallback(
+        admin,
+        storeId,
+        productsQuery,
+        {
+          variables: {
+            first: fetchCount,
+            after: endCursor,
+          },
         },
-      });
+        syncInventory,
+      );
 
       const productsData = json.data?.products;
       if (!productsData) break;
 
       for (const edge of productsData.edges || []) {
         if (processedProducts >= maxProducts) {
+          planLimited = true;
           hasNextPage = false;
           break;
         }
         const p = edge.node;
         try {
-          await upsertProductRecord(storeId, p);
+          await upsertProductRecord(storeId, p, { syncInventory: usedInventory });
           processedProducts++;
         } catch (err) {
           console.error("Error upserting product:", err);
@@ -299,10 +421,15 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL", opti
           processedProducts,
           failedProducts,
           totalProducts: processedProducts,
+          planLimited,
           lastCursor: endCursor,
         },
       });
     }
+
+    // Stopping on the page boundary is the same truncation as stopping inside a
+    // page: there is more catalog than the plan audits.
+    if (hasNextPage && processedProducts >= maxProducts) planLimited = true;
 
     // ---- Pass 2: revalidate the local catalog in batches ----
     let cursorId = null;
@@ -318,6 +445,11 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL", opti
       if (batch.length === 0) break;
 
       const skuCountMap = await getSkuCountsForProducts(storeId, batch);
+      const inventoryLevels = await getInventoryLevelsForProducts(
+        storeId,
+        batch,
+        planConfig,
+      );
 
       for (const prod of batch) {
         const detectedIssues = validateProductData({
@@ -325,6 +457,7 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL", opti
           variants: prod.variants,
           metafields: prod.metafields,
           collections: prod.collections,
+          inventoryLevels,
           rules,
           skuCountMap,
           storePlan: store?.plan || "free",
@@ -355,11 +488,12 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL", opti
         totalProducts: processedProducts,
         processedProducts,
         failedProducts,
+        planLimited,
         completedAt: new Date(),
       },
     });
 
-    return { success: true, processedProducts, failedProducts, scanId: scan.id };
+    return { success: true, processedProducts, failedProducts, planLimited, scanId: scan.id };
   } catch (error) {
     console.error("Scan engine error:", error);
     await prisma.catalogScan.update({
@@ -382,13 +516,18 @@ export async function syncAndScanCatalog(admin, storeId, scanType = "FULL", opti
  */
 export async function syncAndScanSingleProduct(admin, storeId, shopifyProductId) {
   const store = await prisma.store.findUnique({ where: { id: storeId } });
+  const planConfig = getPlanConfig(store?.plan);
   const rules = await prisma.validationRule.findMany({
     where: { storeId, isEnabled: true },
   });
 
-  const json = await graphqlWithRetry(admin, SINGLE_PRODUCT_QUERY, {
-    variables: { id: shopifyProductId },
-  });
+  const { json, usedInventory } = await graphqlWithInventoryFallback(
+    admin,
+    storeId,
+    singleProductQuery,
+    { variables: { id: shopifyProductId } },
+    shouldSyncInventory(storeId, planConfig),
+  );
 
   const p = json.data?.product;
 
@@ -406,7 +545,9 @@ export async function syncAndScanSingleProduct(admin, storeId, shopifyProductId)
     select: { normalizedSku: true },
   });
 
-  const dbProduct = await upsertProductRecord(storeId, p);
+  const dbProduct = await upsertProductRecord(storeId, p, {
+    syncInventory: usedInventory,
+  });
 
   const fullProd = await prisma.product.findUnique({
     where: { id: dbProduct.id },
@@ -414,12 +555,18 @@ export async function syncAndScanSingleProduct(admin, storeId, shopifyProductId)
   });
 
   const skuCountMap = await getSkuCountsForProducts(storeId, [fullProd]);
+  const inventoryLevels = await getInventoryLevelsForProducts(
+    storeId,
+    [fullProd],
+    planConfig,
+  );
 
   const detectedIssues = validateProductData({
     product: fullProd,
     variants: fullProd.variants,
     metafields: fullProd.metafields,
     collections: fullProd.collections,
+    inventoryLevels,
     rules,
     skuCountMap,
     storePlan: store?.plan || "free",
@@ -452,6 +599,12 @@ export async function syncAndScanSingleProduct(admin, storeId, shopifyProductId)
 async function revalidateSkuCounterparts(storeId, affectedSkus, excludeProductId, rules) {
   if (affectedSkus.size === 0) return;
 
+  const store = await prisma.store.findUnique({
+    where: { id: storeId },
+    select: { plan: true },
+  });
+  const planConfig = getPlanConfig(store?.plan);
+
   const counterparts = await prisma.variant.findMany({
     where: {
       storeId,
@@ -471,6 +624,11 @@ async function revalidateSkuCounterparts(storeId, affectedSkus, excludeProductId
   });
 
   const skuCountMap = await getSkuCountsForProducts(storeId, products);
+  const inventoryLevels = await getInventoryLevelsForProducts(
+    storeId,
+    products,
+    planConfig,
+  );
 
   for (const prod of products) {
     const detected = validateProductData({
@@ -478,8 +636,12 @@ async function revalidateSkuCounterparts(storeId, affectedSkus, excludeProductId
       variants: prod.variants,
       metafields: prod.metafields,
       collections: prod.collections,
+      inventoryLevels,
       rules,
       skuCountMap,
+      // Without this the counterpart was revalidated as a free-plan store and
+      // its plan-gated issues were resolved away behind the merchant's back.
+      storePlan: store?.plan || "free",
     });
 
     await syncProductIssues(storeId, prod.id, detected, { updateStoreScore: false });
@@ -514,7 +676,7 @@ export async function deleteLocalProduct(storeId, shopifyProductId) {
   return product.id;
 }
 
-async function upsertProductRecord(storeId, p) {
+async function upsertProductRecord(storeId, p, { syncInventory = false } = {}) {
   // Count image media only: a product whose sole media item is a video or a 3D
   // model has no product image and must still raise MISSING_IMAGE.
   const imagesCount = (p.media?.nodes || []).filter(
@@ -594,6 +756,8 @@ async function upsertProductRecord(storeId, p) {
     });
 
     liveVariantIds.push(variantRecord.id);
+
+    await syncVariantInventoryLevels(storeId, variantRecord.id, v, syncInventory);
 
     if (normSku) {
       await prisma.skuIndex.create({
@@ -707,6 +871,76 @@ async function upsertProductRecord(storeId, p) {
   });
 
   return product;
+}
+
+/**
+ * Mirror one variant's per-location stock (Multi-Location Catalog Sync).
+ *
+ * When the feature is not active for the store the local rows are removed, so a
+ * downgrade stops the inventory checks from reading stock that is no longer
+ * being refreshed.
+ */
+async function syncVariantInventoryLevels(storeId, variantId, variantNode, syncInventory) {
+  if (!prisma.inventoryLevel) return;
+
+  if (!syncInventory) {
+    await prisma.inventoryLevel.deleteMany({ where: { variantId } });
+    return;
+  }
+
+  const levels = variantNode.inventoryItem?.inventoryLevels?.nodes || [];
+  const liveLocationIds = [];
+
+  for (const level of levels) {
+    const locationId = level?.location?.id;
+    if (!locationId) continue;
+
+    const available =
+      (level.quantities || []).find((q) => q?.name === "available")?.quantity ?? 0;
+
+    liveLocationIds.push(locationId);
+
+    await prisma.inventoryLevel.upsert({
+      where: {
+        variantId_shopifyLocationId: { variantId, shopifyLocationId: locationId },
+      },
+      update: {
+        storeId,
+        locationName: level.location?.name || "",
+        available,
+        syncedAt: new Date(),
+      },
+      create: {
+        storeId,
+        variantId,
+        shopifyLocationId: locationId,
+        locationName: level.location?.name || "",
+        available,
+      },
+    });
+  }
+
+  // A variant unstocked at a location must stop counting as stocked there.
+  await prisma.inventoryLevel.deleteMany({
+    where: {
+      variantId,
+      ...(liveLocationIds.length
+        ? { shopifyLocationId: { notIn: liveLocationIds } }
+        : {}),
+    },
+  });
+}
+
+/** Per-location stock for `products`, or [] when the plan has no such sync. */
+async function getInventoryLevelsForProducts(storeId, products, planConfig) {
+  if (!planConfig?.multiLocation || !prisma.inventoryLevel) return [];
+
+  const variantIds = products.flatMap((prod) => (prod.variants || []).map((v) => v.id));
+  if (variantIds.length === 0) return [];
+
+  return prisma.inventoryLevel.findMany({
+    where: { storeId, variantId: { in: variantIds } },
+  });
 }
 
 /**

@@ -18,7 +18,11 @@ import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { ensureStoreRecord, syncAndScanSingleProduct } from "../services/syncEngine.server.js";
 import { calculateAndSaveHealthScores } from "../services/issueEngine.server.js";
-import { getPlanConfig } from "../services/planEngine.server.js";
+import {
+  featureUpgradeMessage,
+  getPlanConfig,
+  serializablePlanConfig,
+} from "../services/planEngine.server.js";
 import { autoFixIssue } from "../services/autoFixEngine.server.js";
 
 export const loader = async ({ params, request }) => {
@@ -43,7 +47,22 @@ export const loader = async ({ params, request }) => {
     throw new Response("Product Not Found", { status: 404 });
   }
 
-  return { store, product, planConfig };
+  // Per-location stock exists only for plans with Multi-Location Catalog Sync.
+  const inventoryLevels =
+    planConfig.multiLocation && prisma.inventoryLevel
+      ? await prisma.inventoryLevel.findMany({
+          where: { storeId: store.id, variantId: { in: product.variants.map((v) => v.id) } },
+          orderBy: [{ locationName: "asc" }],
+        })
+      : [];
+
+  return {
+    store,
+    product,
+    planConfig: serializablePlanConfig(store.plan),
+    inventoryLevels,
+    autoFixUpgradeMessage: planConfig.autoFix ? null : featureUpgradeMessage("autoFix"),
+  };
 };
 
 export const action = async ({ params, request }) => {
@@ -136,7 +155,8 @@ export const action = async ({ params, request }) => {
 };
 
 export default function ProductHealthDetail() {
-  const { store, product, planConfig } = useLoaderData();
+  const { store, product, planConfig, inventoryLevels, autoFixUpgradeMessage } =
+    useLoaderData();
   const submit = useSubmit();
   const navigation = useNavigation();
   const isLoading = navigation.state !== "idle";
@@ -154,10 +174,6 @@ export default function ProductHealthDetail() {
   };
 
   const handleAutoFix = (issueId) => {
-    if (!planConfig.autoFix) {
-      alert("Auto-Fix Resolution Engine requires Plus Enterprise plan subscription ($49/mo). Please upgrade your plan.");
-      return;
-    }
     submit({ actionType: "AUTO_FIX_ISSUE", issueId }, { method: "post" });
   };
 
@@ -197,13 +213,15 @@ export default function ProductHealthDetail() {
     <InlineStack key={`act-${issue.id}`} gap="200">
       {issue.status === "OPEN" && (
         <>
-          <Button
-            size="micro"
-            tone="success"
-            onClick={() => handleAutoFix(issue.id)}
-          >
-            Auto-Fix Engine ⚡
-          </Button>
+          {planConfig.autoFix && (
+            <Button
+              size="micro"
+              tone="success"
+              onClick={() => handleAutoFix(issue.id)}
+            >
+              Auto-Fix Engine ⚡
+            </Button>
+          )}
           <Button size="micro" tone="critical" onClick={() => handleIgnore(issue.id)}>
             Ignore
           </Button>
@@ -217,13 +235,50 @@ export default function ProductHealthDetail() {
     </InlineStack>,
   ]);
 
-  const variantRows = product.variants.map((v) => [
-    v.title || "Default",
-    v.sku ? <Badge key={`sku-${v.id}`} tone="success">{v.sku}</Badge> : <Badge key={`sku-${v.id}`} tone="warning">Missing SKU</Badge>,
-    v.barcode || "—",
-    `$${Number(v.price).toFixed(2)}`,
-    v.compareAtPrice ? `$${Number(v.compareAtPrice).toFixed(2)}` : "—",
-  ]);
+  const levelsByVariant = inventoryLevels.reduce((acc, level) => {
+    (acc[level.variantId] ||= []).push(level);
+    return acc;
+  }, {});
+
+  const variantRows = product.variants.map((v) => {
+    const levels = levelsByVariant[v.id] || [];
+    const row = [
+      v.title || "Default",
+      v.sku ? <Badge key={`sku-${v.id}`} tone="success">{v.sku}</Badge> : <Badge key={`sku-${v.id}`} tone="warning">Missing SKU</Badge>,
+      v.barcode || "—",
+      `$${Number(v.price).toFixed(2)}`,
+      v.compareAtPrice ? `$${Number(v.compareAtPrice).toFixed(2)}` : "—",
+    ];
+
+    if (planConfig.multiLocation) {
+      const total = levels.reduce((sum, l) => sum + l.available, 0);
+      row.push(
+        levels.length === 0 ? (
+          <Badge key={`stock-${v.id}`} tone="warning">No stocked location</Badge>
+        ) : (
+          <Text key={`stock-${v.id}`} variant="bodySm">
+            {`${total} available across ${levels.length} location(s): `}
+            {levels.map((l) => `${l.locationName || l.shopifyLocationId} (${l.available})`).join(", ")}
+          </Text>
+        ),
+      );
+    }
+
+    return row;
+  });
+
+  const variantColumns = planConfig.multiLocation
+    ? ["text", "text", "text", "text", "text", "text"]
+    : ["text", "text", "text", "text", "text"];
+
+  const variantHeadings = [
+    "Variant Title",
+    "SKU",
+    "Barcode",
+    "Price",
+    "Compare At Price",
+    ...(planConfig.multiLocation ? ["Multi-Location Stock"] : []),
+  ];
 
   const shopDomainPrefix = store.shopDomain.replace(".myshopify.com", "");
   const rawShopifyId = product.shopifyProductId?.split("/").pop();
@@ -277,9 +332,18 @@ export default function ProductHealthDetail() {
         <Layout.Section variant="twoThirds">
           <Card padding="0">
             <Box padding="400">
-              <Text variant="headingMd" as="h3">
-                Detected Quality Issues ({product.issues.length})
-              </Text>
+              <BlockStack gap="100">
+                <Text variant="headingMd" as="h3">
+                  Detected Quality Issues ({product.issues.length})
+                </Text>
+                {/* The Auto-Fix button is hidden on plans without the engine, so
+                    say why instead of leaving merchants to guess. */}
+                {autoFixUpgradeMessage && product.issues.length > 0 && (
+                  <Text variant="bodySm" tone="subdued">
+                    {autoFixUpgradeMessage}
+                  </Text>
+                )}
+              </BlockStack>
             </Box>
             <Divider />
             {product.issues.length === 0 ? (
@@ -307,8 +371,8 @@ export default function ProductHealthDetail() {
             </Box>
             <Divider />
             <DataTable
-              columnContentTypes={["text", "text", "text", "text", "text"]}
-              headings={["Variant Title", "SKU", "Barcode", "Price", "Compare At Price"]}
+              columnContentTypes={variantColumns}
+              headings={variantHeadings}
               rows={variantRows}
             />
           </Card>

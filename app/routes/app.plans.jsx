@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { useLoaderData, useActionData, useSubmit, useNavigation } from "react-router";
+/* global process */
+import { useState, useRef, useEffect } from "react";
+import { Form, useLoaderData, useActionData, useNavigation } from "react-router";
 import {
   Page,
-  Layout,
   Card,
   Text,
   Button,
@@ -11,9 +11,9 @@ import {
   Badge,
   Box,
   Divider,
-  Modal,
   FormLayout,
   TextField,
+  Select,
   Banner,
   Icon,
   Grid,
@@ -22,20 +22,51 @@ import { CheckIcon, EmailIcon, ClockIcon, CheckCircleIcon, SendIcon } from "@sho
 import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { ensureStoreRecord } from "../services/syncEngine.server.js";
+import {
+  PLAN_CONFIG,
+  PLAN_IDS,
+  normalizePlanId,
+} from "../services/planEngine.server.js";
+import {
+  addMerchantReply,
+  createTicket,
+  listStoreTickets,
+  ticketSlaLabel,
+} from "../services/supportEngine.server.js";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "sandeepptpss@gmail.com";
+const ADMIN_SHOP_PREFIX = process.env.ADMIN_STORE_NAME || "quickstart-749ac396";
+
+// Value of the "write your own subject" option in the topic list.
+export const CUSTOM_SUBJECT_OPTION = "Other / Custom Topic";
+
+// Display names for the SLA line; the plan engine itself is server-only.
+const PLAN_LABELS = {
+  free: "Starter Free",
+  growth: "Growth",
+  pro: "Pro Advanced",
+  enterprise: "Plus Enterprise",
+};
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
 
-  const supportTickets = await prisma.supportTicket.findMany({
-    where: { storeId: store.id },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-  });
+  const shopDomain = session.shop.toLowerCase();
+  const adminEmail = (store.adminEmail || "").toLowerCase();
+  const isAdmin =
+    shopDomain.includes(ADMIN_SHOP_PREFIX.toLowerCase()) ||
+    adminEmail === ADMIN_EMAIL.toLowerCase();
 
-  return { store, supportTickets };
+  const supportTickets = await listStoreTickets(store.id);
+
+  return {
+    store,
+    supportTickets,
+    supportSla: ticketSlaLabel(store.plan),
+    currentPlanId: normalizePlanId(store.plan) || "free",
+    isAdmin,
+  };
 };
 
 export const action = async ({ request }) => {
@@ -44,91 +75,187 @@ export const action = async ({ request }) => {
   const formData = await request.formData();
   const actionType = formData.get("actionType");
 
+  console.log(`[plans] action ${actionType} received for ${store.shopDomain}`);
+
   if (actionType === "SELECT_PLAN") {
-    const selectedPlan = formData.get("plan");
-    if (selectedPlan) {
-      await prisma.store.update({
-        where: { id: store.id },
-        data: { plan: selectedPlan.toLowerCase() },
-      });
-      return { success: true, message: `Successfully updated to ${selectedPlan.toUpperCase()} plan!` };
+    const selectedPlan = normalizePlanId(formData.get("plan"));
+
+    if (!selectedPlan) {
+      return {
+        scope: "plan",
+        success: false,
+        error: `Unknown plan. Choose one of: ${PLAN_IDS.join(", ")}.`,
+      };
     }
-  }
-
-  if (actionType === "SUBMIT_SUPPORT_TICKET") {
-    const subject = (formData.get("subject") || "").toString().trim();
-    const message = (formData.get("message") || "").toString().trim();
-    const merchantEmail = (formData.get("merchantEmail") || "").toString().trim() || ADMIN_EMAIL;
-
-    if (!subject || !message) {
-      return { success: false, error: "Subject and detailed message are required to submit a ticket." };
-    }
-
-    await prisma.supportTicket.create({
-      data: {
-        storeId: store.id,
-        subject,
-        message,
-        merchantEmail,
-        status: "OPEN",
-      },
-    });
 
     await prisma.store.update({
       where: { id: store.id },
-      data: { adminEmail: merchantEmail },
+      data: { plan: selectedPlan },
     });
 
     return {
+      scope: "plan",
       success: true,
-      message: `Support ticket submitted to ${ADMIN_EMAIL} successfully! We will get back to you shortly.`,
+      message: `Successfully updated to the ${PLAN_CONFIG[selectedPlan].name} plan!`,
     };
   }
 
-  return { success: false, error: "Invalid action." };
+  if (actionType === "SUBMIT_SUPPORT_TICKET") {
+    try {
+      const chosenSubject = (formData.get("subject") || "").toString();
+      const subject =
+        chosenSubject === CUSTOM_SUBJECT_OPTION
+          ? (formData.get("customSubject") || "").toString()
+          : chosenSubject;
+
+      const userEmailInput = (formData.get("merchantEmail") || "").toString().trim();
+      const merchantEmail = userEmailInput || store.adminEmail || "";
+
+      const result = await createTicket({
+        storeId: store.id,
+        subject,
+        message: formData.get("message"),
+        merchantEmail,
+        plan: store.plan,
+      });
+
+      if (!result.success) return { ...result, scope: "support" };
+
+      console.log(
+        `[plans] support ticket ${result.ticket.id} saved for ${store.shopDomain}`,
+      );
+
+      return {
+        scope: "support",
+        success: true,
+        ticketId: result.ticket.id,
+        messageCount: result.ticket.messages.length,
+        message: `Your query has been submitted successfully! Saved as Ticket #${result.ticket.id.slice(0, 8)}. Email notification sent to admin and follow-up will arrive at ${result.ticket.merchantEmail}.`,
+      };
+    } catch (error) {
+      console.error("[plans] support ticket submission failed:", error);
+      return {
+        scope: "support",
+        success: false,
+        error: `Could not save your support ticket: ${error.message}`,
+      };
+    }
+  }
+
+  if (actionType === "REPLY_SUPPORT_TICKET") {
+    try {
+      const result = await addMerchantReply({
+        storeId: store.id,
+        ticketId: formData.get("ticketId"),
+        body: formData.get("replyText"),
+      });
+
+      if (!result.success) return { ...result, scope: "support" };
+
+      console.log(
+        `[plans] support reply saved for ticket ${result.ticket.id} (store ${store.shopDomain})`,
+      );
+
+      return {
+        scope: "support",
+        success: true,
+        ticketId: result.ticket.id,
+        messageCount: result.ticket.messages.length,
+        message: "Your reply was sent to the support team successfully.",
+      };
+    } catch (error) {
+      console.error("[plans] support reply failed:", error);
+      return {
+        scope: "support",
+        success: false,
+        error: `Could not send your reply: ${error.message}`,
+      };
+    }
+  }
+
+  console.warn(`[plans] unhandled actionType ${JSON.stringify(actionType)}`);
+  return { success: false, error: `Unsupported action "${actionType}".` };
 };
 
 export default function Plans() {
-  const { store, supportTickets } = useLoaderData();
+  const { store, supportTickets, currentPlanId, supportSla, isAdmin } = useLoaderData();
   const actionData = useActionData();
-  const submit = useSubmit();
   const navigation = useNavigation();
   const isLoading = navigation.state !== "idle";
 
-  const [supportModalOpen, setSupportModalOpen] = useState(false);
-  const [showInlineForm, setShowInlineForm] = useState(false);
-  const [supportSubject, setSupportSubject] = useState("");
+  const submittedAction = navigation.formData?.get("actionType");
+  const isSupportSubmitting =
+    submittedAction === "SUBMIT_SUPPORT_TICKET" || submittedAction === "REPLY_SUPPORT_TICKET";
+
+  const supportResult = actionData?.scope === "support" ? actionData : null;
+  const planResult = actionData?.scope === "plan" ? actionData : null;
+
+  const supportFormRef = useRef(null);
+  const subjectInputRef = useRef(null);
+
+  // Safely resolve merchant contact email string without crashing on null
+  const storeEmail = (store?.adminEmail || "").toString().trim();
+  const initialContactEmail =
+    storeEmail && storeEmail.toLowerCase() !== ADMIN_EMAIL.toLowerCase()
+      ? storeEmail
+      : "";
+
+  const [supportCategory, setSupportCategory] = useState("Technical Support Query");
+  const [customSubject, setCustomSubject] = useState("");
   const [supportMessage, setSupportMessage] = useState("");
-  const [contactEmail, setContactEmail] = useState(store.adminEmail || ADMIN_EMAIL);
-  const [feedbackBanner, setFeedbackBanner] = useState("");
+  const [contactEmail, setContactEmail] = useState(initialContactEmail);
+  const [validationError, setValidationError] = useState("");
+  const [ticketReplies, setTicketReplies] = useState({});
 
-  const currentPlanId = (store.plan || "free").toLowerCase();
+  useEffect(() => {
+    if (supportResult?.success) {
+      setSupportMessage("");
+      setCustomSubject("");
+    }
+  }, [supportResult]);
 
-  const handleSelectPlan = (planId, planName) => {
-    submit({ actionType: "SELECT_PLAN", plan: planId }, { method: "post" });
-  };
+  const supportError = supportResult?.success === false ? supportResult.error : null;
+  const supportSavedId =
+    supportResult?.success && supportResult.ticketId ? supportResult.ticketId : null;
+
+  const subjectOptions = [
+    { label: "Technical Support Query", value: "Technical Support Query" },
+    { label: "Custom Metafield Audit Rule Setup", value: "Custom Metafield Audit Rule Setup" },
+    { label: "Billing & Subscription Plan Upgrade", value: "Billing & Subscription Plan Upgrade" },
+    { label: "Auto-Fix Engine Assistance", value: "Auto-Fix Engine Assistance" },
+    { label: "Feature Request / Feedback", value: "Feature Request / Feedback" },
+    { label: "Other / Custom Topic", value: "Other / Custom Topic" },
+  ];
 
   const handleOpenSupportForm = () => {
-    setSupportModalOpen(true);
-    setShowInlineForm(true);
+    setValidationError("");
+    if (supportFormRef.current) {
+      supportFormRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    setTimeout(() => {
+      if (subjectInputRef.current) {
+        subjectInputRef.current.focus();
+      }
+    }, 150);
   };
 
-  const handleSendSupportTicket = () => {
-    if (!supportSubject.trim() || !supportMessage.trim()) return;
+  const handleValidateBeforeSubmit = (event) => {
+    const finalSubject =
+      supportCategory === CUSTOM_SUBJECT_OPTION ? (customSubject || "").trim() : supportCategory;
 
-    submit(
-      {
-        actionType: "SUBMIT_SUPPORT_TICKET",
-        subject: supportSubject,
-        message: supportMessage,
-        merchantEmail: contactEmail,
-      },
-      { method: "post" }
-    );
+    const emailVal = (contactEmail || "").trim();
+    const messageVal = (supportMessage || "").trim();
 
-    setSupportModalOpen(false);
-    setSupportSubject("");
-    setSupportMessage("");
+    if (!emailVal || !emailVal.includes("@")) {
+      event.preventDefault();
+      setValidationError("Please enter a valid contact email address where our support team can reach you.");
+      return;
+    }
+
+    if (!finalSubject || !messageVal) {
+      event.preventDefault();
+      setValidationError("Please specify a Subject / Inquiry Topic and a Detailed Message.");
+    }
   };
 
   const plans = [
@@ -146,7 +273,7 @@ export default function Plans() {
         "Basic Missing SKU & Price checks",
         "Weekly manual catalog scan",
         "Standard Dashboard Metrics",
-        "Community Support",
+        "Community Support (2-3 days SLA)",
       ],
     },
     {
@@ -200,13 +327,12 @@ export default function Plans() {
         "Multi-Location Catalog Sync",
         "Unlimited Webhook & On-Demand Scans",
         "Custom Dedicated Rule Engineering",
-        "VIP 1-on-1 Admin Support",
+        "VIP 1-on-1 Admin Support (1h SLA)",
       ],
     },
   ];
 
-  const bannerMessage = actionData?.message || feedbackBanner;
-  const isActionSuccess = actionData?.success ?? true;
+  const bannerMessage = planResult?.success ? planResult.message : null;
 
   return (
     <Page
@@ -220,15 +346,33 @@ export default function Plans() {
       }}
     >
       <BlockStack gap="500">
-        {actionData?.error && (
-          <Banner tone="critical" title="Ticket Submission Error">
-            <p>{actionData.error}</p>
+        {planResult?.error && (
+          <Banner tone="critical" title="Plan change failed">
+            <p>{planResult.error}</p>
           </Banner>
         )}
 
-        {bannerMessage && isActionSuccess && (
-          <Banner tone="success" onDismiss={() => setFeedbackBanner("")}>
+        {bannerMessage && (
+          <Banner tone="success">
             <p>{bannerMessage}</p>
+          </Banner>
+        )}
+
+        {supportSavedId && (
+          <Banner tone="success" title="Support Ticket / Query Submitted Successfully!">
+            <p>{supportResult?.message}</p>
+          </Banner>
+        )}
+
+        {isAdmin && (
+          <Banner
+            tone="info"
+            title="Admin Notice: Switch to Admin Portal to Reply to Tickets"
+            action={{ content: "Open Admin Portal Control Center", url: "/app/admin" }}
+          >
+            <p>
+              You are logged in as Admin. To view all merchant queries across stores, send replies, and manage statuses, click <strong>Admin Portal</strong> in the left sidebar or the button above.
+            </p>
           </Banner>
         )}
 
@@ -292,15 +436,19 @@ export default function Plans() {
                     </BlockStack>
 
                     <Box paddingBlockStart="300">
-                      <Button
-                        fullWidth
-                        size="large"
-                        variant={plan.isPopular && !isCurrent ? "primary" : "secondary"}
-                        disabled={isCurrent || isLoading}
-                        onClick={() => handleSelectPlan(plan.id, plan.name)}
-                      >
-                        {isCurrent ? "Current Active Plan" : `Select ${plan.name}`}
-                      </Button>
+                      <Form method="post">
+                        <input type="hidden" name="actionType" value="SELECT_PLAN" />
+                        <input type="hidden" name="plan" value={plan.id} />
+                        <Button
+                          submit
+                          fullWidth
+                          size="large"
+                          variant={plan.isPopular && !isCurrent ? "primary" : "secondary"}
+                          disabled={isCurrent || isLoading}
+                        >
+                          {isCurrent ? "Current Active Plan" : `Select ${plan.name}`}
+                        </Button>
+                      </Form>
                     </Box>
                   </BlockStack>
                 </Card>
@@ -362,95 +510,268 @@ export default function Plans() {
                     <InlineStack gap="200" blockAlign="center">
                       <Icon source={ClockIcon} tone="highlight" />
                       <Text variant="headingSm" as="h4">
-                        Guaranteed SLA Response
+                        Guaranteed Support SLA Response
                       </Text>
                     </InlineStack>
-                    <Text variant="bodySm">
-                      Pro & Growth Subscribers: <strong>Within 24 hours response SLA</strong>
-                    </Text>
-                    <Text variant="bodySm" tone="subdued">
-                      Free Tier Subscribers: Within 2 to 3 business days
-                    </Text>
+                    <BlockStack gap="100">
+                      <Text variant="bodySm">
+                        Plus Enterprise: <strong>1 Hour VIP Response SLA</strong>
+                      </Text>
+                      <Text variant="bodySm">
+                        Pro Advanced: <strong>4 Hours Priority Response SLA</strong>
+                      </Text>
+                      <Text variant="bodySm">
+                        Growth Plan: <strong>Within 24 Hours Response SLA</strong>
+                      </Text>
+                      <Text variant="bodySm" tone="subdued">
+                        Starter Free: Within 2 to 3 business days
+                      </Text>
+                    </BlockStack>
                   </BlockStack>
                 </Card>
               </Grid.Cell>
             </Grid>
 
-            {/* Inline Support Ticket Creation Form */}
-            {showInlineForm && (
-              <Box padding="400" borderRadius="200" background="bg-surface-secondary">
-                <BlockStack gap="300">
+            {/* Permanent Inline Support Ticket Creation Form */}
+            <div ref={supportFormRef}>
+              <Box
+                padding="500"
+                borderRadius="300"
+                background="bg-surface"
+                shadow="300"
+                style={{
+                  border: "1.5px solid var(--p-color-border-brand, #008060)",
+                  background: "linear-gradient(180deg, var(--p-color-bg-surface-success-subdued, #f1f8f5) 0%, var(--p-color-bg-surface, #ffffff) 100%)",
+                }}
+              >
+                <BlockStack gap="400">
                   <InlineStack align="space-between" blockAlign="center">
-                    <Text variant="headingSm" as="h4" fontWeight="bold">
-                      Submit Merchant Support Inquiry
-                    </Text>
-                    <Button size="micro" variant="tertiary" onClick={() => setShowInlineForm(false)}>
-                      Close Form
-                    </Button>
-                  </InlineStack>
-                  <FormLayout>
-                    <TextField
-                      label="Contact Email"
-                      value={contactEmail}
-                      onChange={setContactEmail}
-                      autoComplete="email"
-                    />
-                    <TextField
-                      label="Subject / Inquiry Topic"
-                      value={supportSubject}
-                      onChange={setSupportSubject}
-                      placeholder="e.g. Need assistance setting up custom metafield audit rules"
-                      autoComplete="off"
-                    />
-                    <TextField
-                      label="Detailed Message"
-                      value={supportMessage}
-                      onChange={setSupportMessage}
-                      multiline={4}
-                      placeholder="Please explain your question or issue in detail..."
-                      autoComplete="off"
-                    />
-                    <InlineStack align="end">
-                      <Button
-                        variant="primary"
-                        icon={SendIcon}
-                        loading={isLoading}
-                        disabled={!supportSubject.trim() || !supportMessage.trim()}
-                        onClick={handleSendSupportTicket}
-                      >
-                        Submit Support Ticket
-                      </Button>
+                    <InlineStack gap="200" blockAlign="center">
+                      <Icon source={SendIcon} tone="success" />
+                      <Text variant="headingMd" as="h4" fontWeight="bold">
+                        Submit Support & Escalation Inquiry
+                      </Text>
                     </InlineStack>
-                  </FormLayout>
+                    <Badge tone="success">Priority Queue</Badge>
+                  </InlineStack>
+
+                  {supportSavedId && (
+                    <Banner tone="success" title="Support Ticket Submitted Successfully!">
+                      <BlockStack gap="100">
+                        <Text variant="bodyMd" fontWeight="bold">{supportResult.message}</Text>
+                        <Text variant="bodySm" tone="subdued">
+                          Saved as ticket <strong>{supportResult?.ticketId}</strong>. Replies appear in your ticket history below.
+                        </Text>
+                      </BlockStack>
+                    </Banner>
+                  )}
+
+                  {validationError && (
+                    <Banner tone="critical" onDismiss={() => setValidationError("")}>
+                      <p>{validationError}</p>
+                    </Banner>
+                  )}
+
+                  {supportError && (
+                    <Banner tone="critical" title="Support ticket was not saved">
+                      <p>{supportError}</p>
+                      <p>
+                        Nothing was lost - your text is still in the form below.
+                        Try again, or email {ADMIN_EMAIL} directly.
+                      </p>
+                    </Banner>
+                  )}
+
+                  <Text variant="bodySm" tone="subdued">
+                    {`Your ${PLAN_LABELS[currentPlanId] || currentPlanId} plan response target: ${supportSla}. `}
+                    {`${supportTickets.length} ticket(s) on record for this store.`}
+                  </Text>
+
+                  <Form method="post" onSubmit={handleValidateBeforeSubmit}>
+                    <input type="hidden" name="actionType" value="SUBMIT_SUPPORT_TICKET" />
+                    <FormLayout>
+                      <Grid>
+                        <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                          <TextField
+                            name="merchantEmail"
+                            label="Your Contact Email"
+                            value={contactEmail}
+                            onChange={setContactEmail}
+                            placeholder="Enter your contact email address (e.g. merchant@yourstore.com)"
+                            autoComplete="email"
+                            helpText="Replies will be sent to this email address."
+                          />
+                        </Grid.Cell>
+                        <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                          <Select
+                            name="subject"
+                            label="Subject / Inquiry Topic"
+                            options={subjectOptions}
+                            value={supportCategory}
+                            onChange={(val) => {
+                              setSupportCategory(val);
+                              if (validationError) setValidationError("");
+                            }}
+                            helpText="Select topic category for faster routing."
+                          />
+                        </Grid.Cell>
+                      </Grid>
+
+                      {supportCategory === CUSTOM_SUBJECT_OPTION && (
+                        <TextField
+                          name="customSubject"
+                          label="Specify Custom Subject Topic"
+                          value={customSubject}
+                          onChange={(val) => {
+                            setCustomSubject(val);
+                            if (validationError) setValidationError("");
+                          }}
+                          placeholder="e.g. Question regarding custom API integration"
+                          autoComplete="off"
+                        />
+                      )}
+                      <TextField
+                        name="message"
+                        label="Detailed Message / Issue Description"
+                        value={supportMessage}
+                        onChange={(val) => {
+                          setSupportMessage(val);
+                          if (validationError) setValidationError("");
+                        }}
+                        multiline={4}
+                        placeholder="Please describe your question or issue in detail..."
+                        autoComplete="off"
+                      />
+                      <InlineStack align="end">
+                        <Button
+                          submit
+                          variant="primary"
+                          size="large"
+                          icon={SendIcon}
+                          loading={isSupportSubmitting}
+                        >
+                          Submit Support Ticket
+                        </Button>
+                      </InlineStack>
+                    </FormLayout>
+                  </Form>
                 </BlockStack>
               </Box>
-            )}
+            </div>
 
             {/* Support Ticket History */}
             {supportTickets.length > 0 && (
               <BlockStack gap="300">
-                <Text variant="headingSm" as="h4">
-                  Your Support Ticket History ({supportTickets.length})
-                </Text>
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text variant="headingSm" as="h4">
+                    Your Support Ticket History ({supportTickets.length})
+                  </Text>
+                  {isAdmin && (
+                    <Button url="/app/admin" size="micro" variant="primary">
+                      Reply as Admin in Admin Portal →
+                    </Button>
+                  )}
+                </InlineStack>
+
                 {supportTickets.map((ticket) => (
                   <Card key={ticket.id} padding="300">
-                    <InlineStack align="space-between" blockAlign="start">
-                      <BlockStack gap="100">
-                        <Text variant="bodyMd" fontWeight="bold">
-                          {ticket.subject}
-                        </Text>
-                        <Text variant="bodySm" tone="subdued">
-                          {ticket.message}
-                        </Text>
-                        <Text variant="bodySm" tone="subdued">
-                          Submitted on: {new Date(ticket.createdAt).toLocaleString()}
-                        </Text>
-                      </BlockStack>
+                    <BlockStack gap="200">
+                      <InlineStack align="space-between" blockAlign="start">
+                        <BlockStack gap="100">
+                          <Text variant="bodyMd" fontWeight="bold">
+                            {ticket.subject}
+                          </Text>
+                          <Text variant="bodySm" tone="subdued">
+                            {`Opened ${new Date(ticket.createdAt).toLocaleString()}`}
+                            {ticket.repliedAt
+                              ? ` · answered ${new Date(ticket.repliedAt).toLocaleString()}`
+                              : ""}
+                          </Text>
+                        </BlockStack>
 
-                      <Badge tone={ticket.status === "OPEN" ? "attention" : "success"}>
-                        {ticket.status}
-                      </Badge>
-                    </InlineStack>
+                        <Badge
+                          tone={
+                            ticket.status === "OPEN"
+                              ? "attention"
+                              : ticket.status === "ANSWERED"
+                              ? "info"
+                              : "success"
+                          }
+                        >
+                          {ticket.status}
+                        </Badge>
+                      </InlineStack>
+
+                      {(ticket.messages || []).map((msg) => {
+                        const isAdminMsg = msg.sender === "ADMIN";
+                        return (
+                          <Box
+                            key={msg.id}
+                            padding="300"
+                            borderRadius="150"
+                            background={
+                              isAdminMsg
+                                ? "bg-surface-success-subdued"
+                                : "bg-surface-secondary"
+                            }
+                            style={
+                              isAdminMsg
+                                ? { borderLeft: "4px solid var(--p-color-border-brand, #008060)" }
+                                : undefined
+                            }
+                          >
+                            <BlockStack gap="100">
+                              <InlineStack align="space-between" blockAlign="center">
+                                <InlineStack gap="200" blockAlign="center">
+                                  <Text
+                                    variant="bodySm"
+                                    fontWeight="bold"
+                                    tone={isAdminMsg ? "success" : undefined}
+                                  >
+                                    {isAdminMsg
+                                      ? `Support Team (${msg.authorEmail || ADMIN_EMAIL})`
+                                      : `You (${msg.authorEmail || ticket.merchantEmail})`}
+                                  </Text>
+                                  {isAdminMsg && <Badge tone="success">ADMIN RESPONSE</Badge>}
+                                </InlineStack>
+                                <Text variant="bodySm" tone="subdued">
+                                  {new Date(msg.createdAt).toLocaleString()}
+                                </Text>
+                              </InlineStack>
+                              <Text variant="bodySm" fontWeight={isAdminMsg ? "medium" : undefined}>
+                                {msg.body}
+                              </Text>
+                            </BlockStack>
+                          </Box>
+                        );
+                      })}
+
+                      {ticket.status !== "RESOLVED" && (
+                        <Form method="post">
+                          <input type="hidden" name="actionType" value="REPLY_SUPPORT_TICKET" />
+                          <input type="hidden" name="ticketId" value={ticket.id} />
+                          <InlineStack gap="200" blockAlign="end" wrap={false}>
+                            <div style={{ flex: 1 }}>
+                              <TextField
+                                name="replyText"
+                                label="Reply to support"
+                                labelHidden
+                                value={ticketReplies[ticket.id] || ""}
+                                onChange={(val) =>
+                                  setTicketReplies((prev) => ({ ...prev, [ticket.id]: val }))
+                                }
+                                placeholder="Add more detail or answer support's question..."
+                                multiline={2}
+                                autoComplete="off"
+                              />
+                            </div>
+                            <Button submit icon={SendIcon} loading={isSupportSubmitting}>
+                              Send Reply
+                            </Button>
+                          </InlineStack>
+                        </Form>
+                      )}
+                    </BlockStack>
                   </Card>
                 ))}
               </BlockStack>
@@ -458,54 +779,6 @@ export default function Plans() {
           </BlockStack>
         </Card>
       </BlockStack>
-
-      {/* Support Ticket Modal */}
-      <Modal
-        open={supportModalOpen}
-        onClose={() => setSupportModalOpen(false)}
-        title="Submit Merchant Support Inquiry"
-        primaryAction={{
-          content: "Send Support Ticket",
-          onClick: handleSendSupportTicket,
-          loading: isLoading,
-          disabled: !supportSubject.trim() || !supportMessage.trim(),
-        }}
-        secondaryActions={[
-          {
-            content: "Cancel",
-            onClick: () => setSupportModalOpen(false),
-          },
-        ]}
-      >
-        <Modal.Section>
-          <FormLayout>
-            <Banner tone="info">
-              <p>Your support ticket will be sent directly to administrator <strong>{ADMIN_EMAIL}</strong>.</p>
-            </Banner>
-            <TextField
-              label="Contact Email"
-              value={contactEmail}
-              onChange={setContactEmail}
-              autoComplete="email"
-            />
-            <TextField
-              label="Subject / Inquiry Topic"
-              value={supportSubject}
-              onChange={setSupportSubject}
-              placeholder="e.g. Need assistance setting up custom metafield audit rules"
-              autoComplete="off"
-            />
-            <TextField
-              label="Detailed Message"
-              value={supportMessage}
-              onChange={setSupportMessage}
-              multiline={4}
-              placeholder="Please explain your question or issue in detail..."
-              autoComplete="off"
-            />
-          </FormLayout>
-        </Modal.Section>
-      </Modal>
     </Page>
   );
 }

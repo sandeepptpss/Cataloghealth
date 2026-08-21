@@ -10,6 +10,8 @@
  * 6. INVALID_COMPARE_AT_PRICE (WARNING) - compare_at_price <= price
  * 7. MISSING_BARCODE (INFO) - barcode missing when rule enabled
  * 8. MISSING_METAFIELD (WARNING) - required custom metafield is missing or empty
+ * 9. NO_STOCKED_LOCATION (WARNING) - variant is not stocked at any location
+ * 10. OUT_OF_STOCK_ALL_LOCATIONS (INFO) - stocked, but zero available everywhere
  *
  * Rules are scoped by ALL, VENDOR, PRODUCT_TYPE or COLLECTION, and merged
  * highest-priority-last so a specific rule overrides a general one (spec #15).
@@ -27,6 +29,7 @@ export function validateProductData({
   variants = [],
   metafields = [],
   collections = [],
+  inventoryLevels = [],
   rules = [],
   skuCountMap = new Map(), // map of normalizedSku -> count
   storePlan = "free",
@@ -46,6 +49,7 @@ export function validateProductData({
   let checkSku = true;
   let checkBarcode = false;
   let checkDescription = true;
+  let checkInventory = false;
   const requiredMetafields = new Set();
 
   for (const rule of sortedRules) {
@@ -75,6 +79,11 @@ export function validateProductData({
       if (rule.checkSku !== undefined) checkSku = rule.checkSku;
       if (rule.checkBarcode !== undefined && planConfig.barcodeAudit) checkBarcode = rule.checkBarcode;
       if (rule.checkDescription !== undefined) checkDescription = rule.checkDescription;
+      // Multi-location stock is only mirrored for plans that include the sync,
+      // so the check would read an empty table on any other plan.
+      if (rule.checkInventory !== undefined && planConfig.multiLocation) {
+        checkInventory = rule.checkInventory;
+      }
 
       if (rule.requiredMetafields && planConfig.requiredMetafields) {
         rule.requiredMetafields.split(",").forEach((mf) => {
@@ -110,6 +119,15 @@ export function validateProductData({
         description: "Product description is empty or missing.",
       });
     }
+  }
+
+  // Per-variant stock, keyed for the loop below.
+  const levelsByVariant = new Map();
+  for (const level of inventoryLevels) {
+    if (!level?.variantId) continue;
+    const list = levelsByVariant.get(level.variantId) || [];
+    list.push(level);
+    levelsByVariant.set(level.variantId, list);
   }
 
   // 3. Variant Validations
@@ -184,6 +202,37 @@ export function validateProductData({
           title: `Missing Barcode for Variant "${variant.title || 'Default'}"`,
           description: `Variant does not have a barcode specified.`,
         });
+      }
+    }
+
+    // Multi-location stock checks
+    if (checkInventory) {
+      const levels = levelsByVariant.get(variant.id) || [];
+
+      if (levels.length === 0) {
+        issues.push({
+          issueType: "NO_STOCKED_LOCATION",
+          fieldName: "inventory",
+          variantId: variant.id,
+          severity: "WARNING",
+          title: `No stocked location for Variant "${variant.title || 'Default'}"`,
+          description:
+            "Variant is not stocked at any location, so it cannot be fulfilled from inventory.",
+        });
+      } else {
+        const totalAvailable = levels.reduce((sum, l) => sum + (l.available ?? 0), 0);
+        if (totalAvailable <= 0) {
+          issues.push({
+            issueType: "OUT_OF_STOCK_ALL_LOCATIONS",
+            fieldName: "inventory",
+            variantId: variant.id,
+            severity: "INFO",
+            title: `Out of stock at all ${levels.length} location(s)`,
+            description: `Variant "${variant.title || 'Default'}" has 0 available across every stocked location (${levels
+              .map((l) => l.locationName || l.shopifyLocationId)
+              .join(", ")}).`,
+          });
+        }
       }
     }
   }

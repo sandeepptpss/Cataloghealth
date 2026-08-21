@@ -1,4 +1,5 @@
 import prisma from "../db.server.js";
+import { getPlanConfig } from "./planEngine.server.js";
 
 /**
  * Merchant alerting (spec #26).
@@ -8,9 +9,16 @@ import prisma from "../db.server.js";
  * not 5,000 emails. So every alert is an aggregate over a time window, and the
  * window advances only when a digest is actually recorded.
  *
- * Delivery is deliberately left as a seam: `Notification` rows are created
- * PENDING and `deliverPendingNotifications` marks them SENT. Wire an email or
- * Slack provider into `deliverNotification` and nothing else has to change.
+ * Alerting is a paid feature: digests need a plan with `emailAlerts` (Growth and
+ * up) and the immediate critical alert needs `instantCriticalAlerts` (Pro and
+ * up). Both gates live here rather than in the callers, so no scan path can
+ * hand a free store a paid alert by forgetting to check.
+ *
+ * Delivery: rows are created PENDING and `deliverPendingNotifications` sends
+ * them. Transport comes from the environment - ALERT_WEBHOOK_URL (any JSON
+ * endpoint: Slack, Zapier, an internal mailer) or RESEND_API_KEY +
+ * ALERT_FROM_EMAIL. With neither configured the row is logged and marked SENT,
+ * which is the previous behaviour.
  */
 
 // A critical alert is not sent more often than this, however many issues land.
@@ -59,16 +67,21 @@ async function countBySeverity(storeId, windowStart, windowEnd) {
  * generate a "0 issues" message every day.
  */
 export async function buildDailyDigest(storeId, { now = new Date() } = {}) {
+  const store = await prisma.store.findUnique({
+    where: { id: storeId },
+    select: { plan: true, adminEmail: true, healthScore: true },
+  });
+
+  if (!store) return null;
+
+  // Email alert notifications start at the Growth plan.
+  if (!getPlanConfig(store.plan).emailAlerts) return null;
+
   const windowStart = await getWindowStart(storeId, "DAILY_DIGEST", now);
   const counts = await countBySeverity(storeId, windowStart, now);
   const total = counts.CRITICAL + counts.WARNING + counts.INFO;
 
   if (total === 0) return null;
-
-  const store = await prisma.store.findUnique({
-    where: { id: storeId },
-    select: { healthScore: true },
-  });
 
   const parts = [];
   if (counts.CRITICAL) parts.push(`${counts.CRITICAL} critical issue(s)`);
@@ -88,6 +101,7 @@ export async function buildDailyDigest(storeId, { now = new Date() } = {}) {
       criticalCount: counts.CRITICAL,
       warningCount: counts.WARNING,
       infoCount: counts.INFO,
+      recipient: resolveRecipient(store),
       // Recording the window end is what stops the next digest from counting
       // these same issues again.
       windowEnd: now,
@@ -104,6 +118,16 @@ export async function buildDailyDigest(storeId, { now = new Date() } = {}) {
  * turn into a notification storm.
  */
 export async function notifyCriticalIfNeeded(storeId, { now = new Date() } = {}) {
+  const store = await prisma.store.findUnique({
+    where: { id: storeId },
+    select: { plan: true, adminEmail: true },
+  });
+
+  if (!store) return null;
+
+  // Instant critical alerts start at the Pro Advanced plan.
+  if (!getPlanConfig(store.plan).instantCriticalAlerts) return null;
+
   const recent = await prisma.notification.findFirst({
     where: {
       storeId,
@@ -137,22 +161,80 @@ export async function notifyCriticalIfNeeded(storeId, { now = new Date() } = {})
         "(missing images, invalid pricing, or duplicate SKUs). These can block " +
         "customers from buying, so review them now.",
       criticalCount,
+      recipient: resolveRecipient(store),
       windowEnd: now,
       status: "PENDING",
     },
   });
 }
 
+/** Where a store's alerts go: its own contact address, else the app owner. */
+function resolveRecipient(store) {
+  return store?.adminEmail || process.env.ADMIN_EMAIL || null;
+}
+
 /**
  * Hand a notification to a delivery provider.
  *
- * No email/Slack transport is configured in this app, so this logs and reports
- * success. Replace the body with a real provider call; failures should throw so
- * the row is marked FAILED rather than silently dropped.
+ * Failures throw so the row is marked FAILED rather than silently dropped.
  */
 async function deliverNotification(notification) {
+  const webhookUrl = process.env.ALERT_WEBHOOK_URL;
+  const resendKey = process.env.RESEND_API_KEY;
+  const fromEmail = process.env.RESEND_FROM_EMAIL || process.env.ALERT_FROM_EMAIL;
+  const to = notification.recipient || process.env.ADMIN_EMAIL;
+
+  if (webhookUrl) {
+    const response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: notification.type,
+        storeId: notification.storeId,
+        recipient: to,
+        title: notification.title,
+        body: notification.body,
+        criticalCount: notification.criticalCount,
+        warningCount: notification.warningCount,
+        infoCount: notification.infoCount,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`alert webhook responded ${response.status}`);
+    }
+    return;
+  }
+
+  if (resendKey && fromEmail) {
+    if (!to) {
+      throw new Error("no recipient address for this store");
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resendKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: fromEmail,
+        to: [to],
+        subject: notification.title,
+        text: notification.body,
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`email provider responded ${response.status} ${detail}`.trim());
+    }
+    return;
+  }
+
+  // No transport configured: keep the audit trail instead of failing the scan.
   console.log(
-    `[alertEngine] ${notification.type} for store ${notification.storeId}: ${notification.title}`,
+    `[alertEngine] ${notification.type} for store ${notification.storeId} -> ${to || "no recipient"}: ${notification.title} (no delivery provider configured)`,
   );
 }
 
