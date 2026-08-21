@@ -22,7 +22,8 @@ export default function App() {
     <ShopifyAppProvider embedded apiKey={apiKey}>
       <PolarisProvider i18n={enTranslations}>
         <ui-nav-menu>
-          <a href="/app" rel="home">Dashboard</a>
+          <a href="/app" rel="home">Catalog Health</a>
+          <a href="/app">Dashboard</a>
           <a href="/app/rules">Validation Rules</a>
           <a href="/app/scans">Scan Logs</a>
           <a href="/app/plans">Plans</a>
