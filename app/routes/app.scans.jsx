@@ -197,6 +197,7 @@ export default function CatalogScans() {
 
   return (
     <Page
+      fullWidth
       title="Catalog Audit Scan History"
       subtitle="Track background batch scans, webhook syncs, and manual audits"
       primaryAction={{

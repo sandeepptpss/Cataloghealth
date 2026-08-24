@@ -6,7 +6,7 @@ import { getPlanConfig } from "./planEngine.server.js";
 
 // Products fetched per Admin API page. Kept modest because each node also pulls
 // variants, media and metafields, and the GraphQL cost budget is shared.
-const PRODUCTS_PAGE_SIZE = 25;
+const PRODUCTS_PAGE_SIZE = 10;
 // Local products revalidated per batch during the validation pass.
 const VALIDATION_BATCH_SIZE = 200;
 // Max other products revalidated when a SKU stops/starts being a duplicate.
@@ -18,7 +18,7 @@ const DUPLICATE_FANOUT_LIMIT = 50;
 const INVENTORY_LEVEL_FIELDS = `#graphql
       inventoryItem {
         id
-        inventoryLevels(first: 20) {
+        inventoryLevels(first: 10) {
           nodes {
             id
             location {
@@ -43,13 +43,13 @@ function productFields(includeInventory) {
   vendor
   productType
   status
-  media(first: 50) {
+  media(first: 20) {
     nodes {
       id
       mediaContentType
     }
   }
-  variants(first: 100) {
+  variants(first: 50) {
     nodes {
       id
       title
@@ -61,7 +61,7 @@ function productFields(includeInventory) {
       ${includeInventory ? INVENTORY_LEVEL_FIELDS : ""}
     }
   }
-  metafields(first: 100) {
+  metafields(first: 25) {
     nodes {
       id
       namespace
@@ -70,7 +70,7 @@ function productFields(includeInventory) {
       type
     }
   }
-  collections(first: 50) {
+  collections(first: 20) {
     nodes {
       id
       handle

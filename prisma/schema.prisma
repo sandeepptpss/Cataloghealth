@@ -67,6 +67,7 @@ model Store {
   shopifyStoreId String?  @db.VarChar(191)
   adminEmail     String?  @db.VarChar(191)
   plan           String   @default("free") @db.VarChar(100)
+  billingInterval String  @default("monthly") @db.VarChar(50)
   status         String   @default("active") @db.VarChar(50)
   healthScore    Float    @default(100.0)
   installedAt    DateTime @default(now())
@@ -415,3 +416,12 @@ model SupportMessage {
 
   @@index([ticketId, createdAt])
 }
+
+/// Key-value storage for app-wide global configuration settings.
+model GlobalSetting {
+  id        String   @id @default(uuid()) @db.VarChar(64)
+  key       String   @unique @db.VarChar(191)
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+

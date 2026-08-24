@@ -1,5 +1,4 @@
-/* global process */
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { Form, useLoaderData, useActionData, useNavigation } from "react-router";
 import {
   Page,
@@ -11,78 +10,57 @@ import {
   Badge,
   Box,
   Divider,
-  FormLayout,
-  TextField,
-  Select,
   Banner,
-  Icon,
   Grid,
 } from "@shopify/polaris";
-import { CheckIcon, EmailIcon, ClockIcon, CheckCircleIcon, SendIcon } from "@shopify/polaris-icons";
-import { authenticate } from "../shopify.server.js";
-import prisma from "../db.server.js";
-import { ensureStoreRecord } from "../services/syncEngine.server.js";
-import {
-  PLAN_CONFIG,
-  PLAN_IDS,
-  normalizePlanId,
-} from "../services/planEngine.server.js";
-import {
-  addMerchantReply,
-  createTicket,
-  listStoreTickets,
-  ticketSlaLabel,
-} from "../services/supportEngine.server.js";
-
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "sandeepptpss@gmail.com";
-const ADMIN_SHOP_PREFIX = process.env.ADMIN_STORE_NAME || "quickstart-749ac396";
-
-// Value of the "write your own subject" option in the topic list.
-export const CUSTOM_SUBJECT_OPTION = "Other / Custom Topic";
-
-// Display names for the SLA line; the plan engine itself is server-only.
-const PLAN_LABELS = {
-  free: "Starter Free",
-  growth: "Growth",
-  pro: "Pro Advanced",
-  enterprise: "Plus Enterprise",
-};
+import { calculateYearlyPricing, PLAN_CONFIG } from "../services/planConfig.js";
 
 export const loader = async ({ request }) => {
+  const { authenticate } = await import("../shopify.server.js");
+  const { ensureStoreRecord } = await import("../services/syncEngine.server.js");
+  const { normalizePlanId } = await import("../services/planEngine.server.js");
+  const { getYearlyDiscountPercentage } = await import("../services/settingsEngine.server.js");
+
+  const adminEmailEnv = process.env.ADMIN_EMAIL || "sandeepptpss@gmail.com";
+  const adminShopPrefix = process.env.ADMIN_STORE_NAME || "quickstart-749ac396";
+
   const { session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
 
   const shopDomain = session.shop.toLowerCase();
   const adminEmail = (store.adminEmail || "").toLowerCase();
   const isAdmin =
-    shopDomain.includes(ADMIN_SHOP_PREFIX.toLowerCase()) ||
-    adminEmail === ADMIN_EMAIL.toLowerCase();
+    shopDomain.includes(adminShopPrefix.toLowerCase()) ||
+    adminEmail === adminEmailEnv.toLowerCase();
 
-  const supportTickets = await listStoreTickets(store.id);
+  const yearlyDiscountPercent = await getYearlyDiscountPercentage();
 
   return {
     store,
-    supportTickets,
-    supportSla: ticketSlaLabel(store.plan),
     currentPlanId: normalizePlanId(store.plan) || "free",
+    currentBillingInterval: store.billingInterval || "monthly",
     isAdmin,
+    yearlyDiscountPercent,
   };
 };
 
 export const action = async ({ request }) => {
+  const { authenticate } = await import("../shopify.server.js");
+  const { ensureStoreRecord } = await import("../services/syncEngine.server.js");
+  const { PLAN_CONFIG, PLAN_IDS, normalizePlanId } = await import("../services/planEngine.server.js");
+  const { default: prisma } = await import("../db.server.js");
+
   const { session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
   const formData = await request.formData();
   const actionType = formData.get("actionType");
 
-  console.log(`[plans] action ${actionType} received for ${store.shopDomain}`);
-
   if (actionType === "SELECT_PLAN") {
     const selectedPlan = normalizePlanId(formData.get("plan"));
+    const selectedInterval = formData.get("billingInterval") === "yearly" ? "yearly" : "monthly";
 
     if (!selectedPlan) {
       return {
-        scope: "plan",
         success: false,
         error: `Unknown plan. Choose one of: ${PLAN_IDS.join(", ")}.`,
       };
@@ -90,186 +68,44 @@ export const action = async ({ request }) => {
 
     await prisma.store.update({
       where: { id: store.id },
-      data: { plan: selectedPlan },
+      data: {
+        plan: selectedPlan,
+        billingInterval: selectedInterval,
+      },
     });
 
+    const intervalText = selectedInterval === "yearly" ? "Annual / Yearly Billed" : "Monthly Billed";
+
     return {
-      scope: "plan",
       success: true,
-      message: `Successfully updated to the ${PLAN_CONFIG[selectedPlan].name} plan!`,
+      message: `Successfully subscribed to the ${PLAN_CONFIG[selectedPlan].name} plan (${intervalText})!`,
     };
   }
 
-  if (actionType === "SUBMIT_SUPPORT_TICKET") {
-    try {
-      const chosenSubject = (formData.get("subject") || "").toString();
-      const subject =
-        chosenSubject === CUSTOM_SUBJECT_OPTION
-          ? (formData.get("customSubject") || "").toString()
-          : chosenSubject;
-
-      const userEmailInput = (formData.get("merchantEmail") || "").toString().trim();
-      const merchantEmail = userEmailInput || store.adminEmail || "";
-
-      const result = await createTicket({
-        storeId: store.id,
-        subject,
-        message: formData.get("message"),
-        merchantEmail,
-        plan: store.plan,
-      });
-
-      if (!result.success) return { ...result, scope: "support" };
-
-      console.log(
-        `[plans] support ticket ${result.ticket.id} saved for ${store.shopDomain}`,
-      );
-
-      return {
-        scope: "support",
-        success: true,
-        ticketId: result.ticket.id,
-        messageCount: result.ticket.messages.length,
-        message: `Your query has been submitted successfully! Saved as Ticket #${result.ticket.id.slice(0, 8)}. Email notification sent to admin and follow-up will arrive at ${result.ticket.merchantEmail}.`,
-      };
-    } catch (error) {
-      console.error("[plans] support ticket submission failed:", error);
-      return {
-        scope: "support",
-        success: false,
-        error: `Could not save your support ticket: ${error.message}`,
-      };
-    }
-  }
-
-  if (actionType === "REPLY_SUPPORT_TICKET") {
-    try {
-      const result = await addMerchantReply({
-        storeId: store.id,
-        ticketId: formData.get("ticketId"),
-        body: formData.get("replyText"),
-      });
-
-      if (!result.success) return { ...result, scope: "support" };
-
-      console.log(
-        `[plans] support reply saved for ticket ${result.ticket.id} (store ${store.shopDomain})`,
-      );
-
-      return {
-        scope: "support",
-        success: true,
-        ticketId: result.ticket.id,
-        messageCount: result.ticket.messages.length,
-        message: "Your reply was sent to the support team successfully.",
-      };
-    } catch (error) {
-      console.error("[plans] support reply failed:", error);
-      return {
-        scope: "support",
-        success: false,
-        error: `Could not send your reply: ${error.message}`,
-      };
-    }
-  }
-
-  console.warn(`[plans] unhandled actionType ${JSON.stringify(actionType)}`);
-  return { success: false, error: `Unsupported action "${actionType}".` };
+  return { success: false };
 };
 
 export default function Plans() {
-  const { store, supportTickets, currentPlanId, supportSla, isAdmin } = useLoaderData();
+  const { currentPlanId, currentBillingInterval, yearlyDiscountPercent } = useLoaderData();
   const actionData = useActionData();
   const navigation = useNavigation();
   const isLoading = navigation.state !== "idle";
 
-  const submittedAction = navigation.formData?.get("actionType");
-  const isSupportSubmitting =
-    submittedAction === "SUBMIT_SUPPORT_TICKET" || submittedAction === "REPLY_SUPPORT_TICKET";
-
-  const supportResult = actionData?.scope === "support" ? actionData : null;
-  const planResult = actionData?.scope === "plan" ? actionData : null;
-
-  const supportFormRef = useRef(null);
-  const subjectInputRef = useRef(null);
-
-  // Safely resolve merchant contact email string without crashing on null
-  const storeEmail = (store?.adminEmail || "").toString().trim();
-  const initialContactEmail =
-    storeEmail && storeEmail.toLowerCase() !== ADMIN_EMAIL.toLowerCase()
-      ? storeEmail
-      : "";
-
-  const [supportCategory, setSupportCategory] = useState("Technical Support Query");
-  const [customSubject, setCustomSubject] = useState("");
-  const [supportMessage, setSupportMessage] = useState("");
-  const [contactEmail, setContactEmail] = useState(initialContactEmail);
-  const [validationError, setValidationError] = useState("");
-  const [ticketReplies, setTicketReplies] = useState({});
-
-  useEffect(() => {
-    if (supportResult?.success) {
-      setSupportMessage("");
-      setCustomSubject("");
-    }
-  }, [supportResult]);
-
-  const supportError = supportResult?.success === false ? supportResult.error : null;
-  const supportSavedId =
-    supportResult?.success && supportResult.ticketId ? supportResult.ticketId : null;
-
-  const subjectOptions = [
-    { label: "Technical Support Query", value: "Technical Support Query" },
-    { label: "Custom Metafield Audit Rule Setup", value: "Custom Metafield Audit Rule Setup" },
-    { label: "Billing & Subscription Plan Upgrade", value: "Billing & Subscription Plan Upgrade" },
-    { label: "Auto-Fix Engine Assistance", value: "Auto-Fix Engine Assistance" },
-    { label: "Feature Request / Feedback", value: "Feature Request / Feedback" },
-    { label: "Other / Custom Topic", value: "Other / Custom Topic" },
-  ];
-
-  const handleOpenSupportForm = () => {
-    setValidationError("");
-    if (supportFormRef.current) {
-      supportFormRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-    setTimeout(() => {
-      if (subjectInputRef.current) {
-        subjectInputRef.current.focus();
-      }
-    }, 150);
-  };
-
-  const handleValidateBeforeSubmit = (event) => {
-    const finalSubject =
-      supportCategory === CUSTOM_SUBJECT_OPTION ? (customSubject || "").trim() : supportCategory;
-
-    const emailVal = (contactEmail || "").trim();
-    const messageVal = (supportMessage || "").trim();
-
-    if (!emailVal || !emailVal.includes("@")) {
-      event.preventDefault();
-      setValidationError("Please enter a valid contact email address where our support team can reach you.");
-      return;
-    }
-
-    if (!finalSubject || !messageVal) {
-      event.preventDefault();
-      setValidationError("Please specify a Subject / Inquiry Topic and a Detailed Message.");
-    }
-  };
+  const [billingInterval, setBillingInterval] = useState(currentBillingInterval || "monthly");
 
   const plans = [
     {
       id: "free",
       name: "Starter Free",
+      priceAmount: 0,
       price: "$0",
       period: "/month",
-      badge: "Starter",
-      badgeTone: "subdued",
+      badge: "STARTER",
+      badgeTone: "info",
       isPopular: false,
-      description: "Essential health checks for growing Shopify catalogs.",
+      description: "Essential catalog quality checks for small stores.",
       features: [
-        "Audit up to 250 products",
+        "Audit up to 500 products",
         "Basic Missing SKU & Price checks",
         "Weekly manual catalog scan",
         "Standard Dashboard Metrics",
@@ -278,15 +114,16 @@ export default function Plans() {
     },
     {
       id: "growth",
-      name: "Growth Plan",
-      price: "$9",
+      name: "Growth",
+      priceAmount: 7.99,
+      price: "$7.99",
       period: "/month",
-      badge: "Growing Stores",
+      badge: "RECOMMENDED",
       badgeTone: "info",
       isPopular: false,
-      description: "Automated daily catalog audits & duplicate SKU detection.",
+      description: "Automated daily audits for growing inventory.",
       features: [
-        "Audit up to 2,500 products",
+        "Audit up to 3,000 products",
         "Automated Daily Catalog Scans",
         "Missing Image & Zero-Price Detection",
         "Duplicate SKU Detection Engine",
@@ -297,14 +134,15 @@ export default function Plans() {
     {
       id: "pro",
       name: "Pro Advanced",
-      price: "$29",
+      priceAmount: 19.99,
+      price: "$19.99",
       period: "/month",
       badge: "MOST POPULAR",
       badgeTone: "highlight",
       isPopular: true,
-      description: "Real-time webhook monitoring & custom metafield compliance engine.",
+      description: "Real-time webhook scanning & custom rule engine.",
       features: [
-        "Audit up to 10,000 products",
+        "Audit up to 15,000 products",
         "Real-time Webhook Instant Scans",
         "Required Metafield & Barcode Audit",
         "Custom Validation Rule Builder",
@@ -315,12 +153,13 @@ export default function Plans() {
     {
       id: "enterprise",
       name: "Plus Enterprise",
-      price: "$49",
+      priceAmount: 39.99,
+      price: "$39.99",
       period: "/month",
       badge: "UNLIMITED",
       badgeTone: "success",
       isPopular: false,
-      description: "Auto-fix safety layer, multi-location inventory & VIP dedicated support.",
+      description: "Full automation, auto-fix engine & VIP SLA.",
       features: [
         "Unlimited Product Audits",
         "Auto-Fix Resolution Engine",
@@ -332,450 +171,352 @@ export default function Plans() {
     },
   ];
 
-  const bannerMessage = planResult?.success ? planResult.message : null;
+  const featureMatrix = [
+    {
+      category: "Audit Allowance & Scanning",
+      rows: [
+        { feature: "Product Audit Capacity", free: "500 products", growth: "3,000 products", pro: "15,000 products", enterprise: "Unlimited" },
+        { feature: "Scan Automation", free: "Weekly Manual", growth: "Daily Automated", pro: "Real-time Webhook", enterprise: "Instant Webhook & On-Demand" },
+        { feature: "On-Demand Manual Audits", free: "1 / week", growth: "7 / week", pro: "30 / week", enterprise: "Unlimited" },
+      ],
+    },
+    {
+      category: "Health Checks & Rules",
+      rows: [
+        { feature: "Missing SKU & Zero-Price Detection", free: "✓", growth: "✓", pro: "✓", enterprise: "✓" },
+        { feature: "Missing Image & Variant Checks", free: "Basic", growth: "✓", pro: "✓", enterprise: "✓" },
+        { feature: "Duplicate SKU Detection Engine", free: "-", growth: "✓", pro: "✓", enterprise: "✓" },
+        { feature: "Required Metafield & Barcode Audit", free: "-", growth: "-", pro: "✓", enterprise: "✓" },
+        { feature: "Custom Rule Builder Engine", free: "-", growth: "-", pro: "✓", enterprise: "✓" },
+      ],
+    },
+    {
+      category: "Automation & Resolution",
+      rows: [
+        { feature: "Auto-Fix Resolution Engine", free: "-", growth: "-", pro: "-", enterprise: "✓" },
+        { feature: "Multi-Location Inventory Sync", free: "-", growth: "-", pro: "-", enterprise: "✓" },
+        { feature: "Instant Email Alert Dispatch", free: "-", growth: "✓", pro: "✓", enterprise: "✓" },
+      ],
+    },
+    {
+      category: "Support & SLA",
+      rows: [
+        { feature: "Guaranteed Response SLA", free: "2-3 Days", growth: "24 Hours", pro: "4 Hours", enterprise: "1 Hour VIP" },
+        { feature: "Support Channel", free: "Community", growth: "Email", pro: "Priority Email", enterprise: "VIP 1-on-1 Admin" },
+      ],
+    },
+  ];
 
   return (
     <Page
       fullWidth
-      title="Plans & Merchant Support"
-      subtitle="Select the ideal monitoring tier for your Shopify store catalog size and feature needs"
-      primaryAction={{
-        content: "Submit Support Ticket",
-        icon: EmailIcon,
-        onClick: handleOpenSupportForm,
-      }}
+      title="Subscription Plans & Feature Matrix"
+      subtitle="Select a plan tier suited for your store catalog size and automation requirements"
     >
       <BlockStack gap="500">
-        {planResult?.error && (
-          <Banner tone="critical" title="Plan change failed">
-            <p>{planResult.error}</p>
+        {actionData?.error && (
+          <Banner tone="critical" title="Plan Change Failed">
+            <p>{actionData.error}</p>
           </Banner>
         )}
 
-        {bannerMessage && (
-          <Banner tone="success">
-            <p>{bannerMessage}</p>
+        {actionData?.success && actionData?.message && (
+          <Banner tone="success" title="Plan Updated">
+            <p>{actionData.message}</p>
           </Banner>
         )}
 
-        {supportSavedId && (
-          <Banner tone="success" title="Support Ticket / Query Submitted Successfully!">
-            <p>{supportResult?.message}</p>
-          </Banner>
-        )}
+        {/* Current Plan Overview Card */}
+        <Card padding="500">
+          <InlineStack align="space-between" blockAlign="center">
+            <BlockStack gap="100">
+              <Text variant="headingSm" as="h3" fontWeight="bold">
+                Current Active Subscription
+              </Text>
+              <Text variant="bodySm" tone="subdued">
+                Your store is currently subscribed to the <strong>{(currentPlanId || "free").toUpperCase()}</strong> plan ({currentPlanId === "free" ? "FREE TIER" : `${(currentBillingInterval || "monthly").toUpperCase()} BILLING`}).
+              </Text>
+            </BlockStack>
+            <Badge tone="success">
+              {currentPlanId === "free"
+                ? "Active Plan: FREE"
+                : `Active: ${(currentPlanId || "free").toUpperCase()} (${(currentBillingInterval || "monthly").toUpperCase()})`}
+            </Badge>
+          </InlineStack>
+        </Card>
 
-        {isAdmin && (
-          <Banner
-            tone="info"
-            title="Admin Notice: Switch to Admin Portal to Reply to Tickets"
-            action={{ content: "Open Admin Portal Control Center", url: "/app/admin" }}
-          >
-            <p>
-              You are logged in as Admin. To view all merchant queries across stores, send replies, and manage statuses, click <strong>Admin Portal</strong> in the left sidebar or the button above.
-            </p>
-          </Banner>
-        )}
+        {/* Billing Frequency Switcher Toolbar */}
+        <Box padding="400" borderRadius="300" background="bg-surface-secondary">
+          <InlineStack align="space-between" blockAlign="center">
+            <BlockStack gap="050">
+              <Text variant="headingSm" as="h4" fontWeight="bold">
+                Billing Cycle Options
+              </Text>
+              <Text variant="bodySm" tone="subdued">
+                Save up to <strong>{yearlyDiscountPercent}% OFF</strong> with annual billing
+              </Text>
+            </BlockStack>
+            <InlineStack gap="200">
+              <button
+                type="button"
+                onClick={() => setBillingInterval("monthly")}
+                style={{
+                  cursor: "pointer",
+                  padding: "8px 16px",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  borderRadius: "8px",
+                  border: billingInterval === "monthly" ? "2px solid #008060" : "1px solid #c9cccf",
+                  backgroundColor: billingInterval === "monthly" ? "#008060" : "#ffffff",
+                  color: billingInterval === "monthly" ? "#ffffff" : "#202223",
+                  boxShadow: "0 1px 0 rgba(0,0,0,0.05)",
+                  transition: "all 0.15s ease-in-out",
+                }}
+              >
+                Monthly Billing
+              </button>
 
-        {/* Top Intro Banner */}
-        <Banner tone="info" title="Feature-Aligned Subscription Plans">
-          <p>
-            Scale your product catalog quality assurance with automated daily scanning, required metafield enforcement, real-time webhook updates, and auto-fix rules. Current active store plan: <strong>{currentPlanId.toUpperCase()}</strong>.
-          </p>
-        </Banner>
+              <button
+                type="button"
+                onClick={() => setBillingInterval("yearly")}
+                style={{
+                  cursor: "pointer",
+                  padding: "8px 16px",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  borderRadius: "8px",
+                  border: billingInterval === "yearly" ? "2px solid #008060" : "1px solid #c9cccf",
+                  backgroundColor: billingInterval === "yearly" ? "#008060" : "#ffffff",
+                  color: billingInterval === "yearly" ? "#ffffff" : "#202223",
+                  boxShadow: "0 1px 0 rgba(0,0,0,0.05)",
+                  transition: "all 0.15s ease-in-out",
+                }}
+              >
+                Yearly Billing ({yearlyDiscountPercent}% OFF)
+              </button>
+            </InlineStack>
+          </InlineStack>
+        </Box>
 
         {/* Pricing Cards Grid */}
         <Grid>
           {plans.map((plan) => {
             const isCurrent = currentPlanId === plan.id;
+            const yearlyInfo = calculateYearlyPricing(plan.priceAmount, yearlyDiscountPercent);
+            const isYearly = billingInterval === "yearly" && plan.priceAmount > 0;
+
             return (
               <Grid.Cell
                 key={plan.id}
-                columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}
+                columnSpan={{ xs: 12, sm: 6, md: 3, lg: 3, xl: 3 }}
               >
-                <Card
-                  padding="500"
-                  background={plan.isPopular ? "bg-surface-secondary" : undefined}
+                <div
+                  style={{
+                    height: "100%",
+                    borderRadius: "12px",
+                    border: isCurrent
+                      ? "2px solid var(--p-color-border-success, #008060)"
+                      : plan.isPopular
+                      ? "2px solid var(--p-color-border-brand, #005bd3)"
+                      : "1px solid var(--p-color-border, #e1e3e5)",
+                    overflow: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
                 >
-                  <BlockStack gap="400">
-                    <InlineStack align="space-between" blockAlign="center">
-                      <Text variant="headingLg" as="h3" fontWeight="bold">
-                        {plan.name}
-                      </Text>
-                      {isCurrent ? (
-                        <Badge tone="success">ACTIVE PLAN</Badge>
-                      ) : (
-                        <Badge tone={plan.badgeTone}>{plan.badge}</Badge>
-                      )}
-                    </InlineStack>
-
-                    <InlineStack gap="100" align="baseline">
-                      <Text variant="heading2xl" as="span" fontWeight="bold">
-                        {plan.price}
-                      </Text>
-                      <Text variant="bodyMd" tone="subdued" as="span">
-                        {plan.period}
-                      </Text>
-                    </InlineStack>
-
-                    <Text variant="bodySm" tone="subdued">
-                      {plan.description}
-                    </Text>
-
-                    <Divider />
-
-                    <BlockStack gap="200">
-                      <Text variant="headingSm" as="h4" fontWeight="bold">
-                        Included Features:
-                      </Text>
-                      {plan.features.map((feat, idx) => (
-                        <InlineStack key={idx} gap="200" align="start" blockAlign="center">
-                          <Icon source={CheckIcon} tone="success" />
-                          <Text variant="bodySm">{feat}</Text>
+                  <Card padding="500">
+                    <BlockStack gap="400">
+                      {/* Card Header */}
+                      <BlockStack gap="100">
+                        <InlineStack align="space-between" blockAlign="center">
+                          <Text variant="headingMd" as="h3" fontWeight="bold">
+                            {plan.name}
+                          </Text>
+                          {isCurrent ? (
+                            <Badge tone="success">ACTIVE</Badge>
+                          ) : isYearly ? (
+                            <Badge tone="success">{`${yearlyDiscountPercent}% OFF`}</Badge>
+                          ) : (
+                            <Badge tone={plan.badgeTone}>{plan.badge}</Badge>
+                          )}
                         </InlineStack>
-                      ))}
-                    </BlockStack>
 
-                    <Box paddingBlockStart="300">
-                      <Form method="post">
-                        <input type="hidden" name="actionType" value="SELECT_PLAN" />
-                        <input type="hidden" name="plan" value={plan.id} />
-                        <Button
-                          submit
-                          fullWidth
-                          size="large"
-                          variant={plan.isPopular && !isCurrent ? "primary" : "secondary"}
-                          disabled={isCurrent || isLoading}
-                        >
-                          {isCurrent ? "Current Active Plan" : `Select ${plan.name}`}
-                        </Button>
-                      </Form>
-                    </Box>
-                  </BlockStack>
-                </Card>
+                        <Text variant="bodyXs" tone="subdued">
+                          {plan.description}
+                        </Text>
+                      </BlockStack>
+
+                      {/* Pricing Display */}
+                      <BlockStack gap="050">
+                        <InlineStack gap="100" align="baseline">
+                          <Text variant="heading2xl" as="span" fontWeight="bold">
+                            {isYearly ? yearlyInfo.monthlyEquivalentFormatted : plan.price}
+                          </Text>
+                          <Text variant="bodySm" tone="subdued" as="span">
+                            {isYearly ? "/mo (billed annually)" : plan.period}
+                          </Text>
+                        </InlineStack>
+                        {isYearly && (
+                          <Text variant="bodyXs" tone="success" fontWeight="bold">
+                            Total: {yearlyInfo.yearlyTotalFormatted}/yr ({yearlyInfo.savingsLabel})
+                          </Text>
+                        )}
+                      </BlockStack>
+
+                      <Divider />
+
+                      {/* Feature List */}
+                      <BlockStack gap="250">
+                        <Text variant="bodyXs" tone="subdued" fontWeight="bold">
+                          FEATURES INCLUDED:
+                        </Text>
+
+                        {plan.features.map((feat, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              display: "flex",
+                              alignItems: "flex-start",
+                              gap: "8px",
+                            }}
+                          >
+                            <span
+                              style={{
+                                color: "var(--p-color-text-success, #008060)",
+                                fontWeight: "bold",
+                                fontSize: "14px",
+                                lineHeight: "1.3",
+                                flexShrink: 0,
+                              }}
+                            >
+                              ✓
+                            </span>
+                            <Text variant="bodySm" as="span">
+                              {feat}
+                            </Text>
+                          </div>
+                        ))}
+                      </BlockStack>
+
+                      <Box paddingBlockStart="300">
+                        <Form method="post">
+                          <input type="hidden" name="actionType" value="SELECT_PLAN" />
+                          <input type="hidden" name="plan" value={plan.id} />
+                          <input type="hidden" name="billingInterval" value={isYearly ? "yearly" : "monthly"} />
+                          <Button
+                            submit
+                            fullWidth
+                            size="large"
+                            variant={isCurrent ? "secondary" : plan.isPopular ? "primary" : "secondary"}
+                            disabled={isCurrent || isLoading}
+                          >
+                            {isCurrent
+                              ? "Active Plan"
+                              : plan.priceAmount === 0
+                              ? "Select Starter Free"
+                              : isYearly
+                              ? `Subscribe Yearly (${yearlyInfo.yearlyTotalFormatted}/yr)`
+                              : `Subscribe Monthly (${plan.price}/mo)`}
+                          </Button>
+                        </Form>
+                      </Box>
+                    </BlockStack>
+                  </Card>
+                </div>
               </Grid.Cell>
             );
           })}
         </Grid>
 
-        {/* Merchant Support Section */}
+        {/* Feature Comparison Matrix Table */}
         <Card padding="500">
           <BlockStack gap="400">
-            <InlineStack align="space-between" blockAlign="center">
-              <BlockStack gap="100">
-                <InlineStack gap="200" blockAlign="center">
-                  <Icon source={CheckCircleIcon} tone="success" />
-                  <Text variant="headingMd" as="h3">
-                    Merchant Support & Escalations
-                  </Text>
-                </InlineStack>
-                <Text variant="bodySm" tone="subdued">
-                  Direct support assistance for custom audit rules, metafield setup, or plan upgrades.
-                </Text>
-              </BlockStack>
-
-              <Button
-                variant="primary"
-                icon={EmailIcon}
-                onClick={handleOpenSupportForm}
-              >
-                Open Support Ticket
-              </Button>
-            </InlineStack>
+            <BlockStack gap="100">
+              <Text variant="headingMd" as="h2" fontWeight="bold">
+                Detailed Feature Comparison Matrix
+              </Text>
+              <Text variant="bodySm" tone="subdued">
+                Compare plan capabilities side-by-side to choose the right monitoring tier for your business.
+              </Text>
+            </BlockStack>
 
             <Divider />
 
-            <Grid>
-              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
-                <Card padding="400" background="bg-surface-secondary">
-                  <BlockStack gap="200">
-                    <InlineStack gap="200" blockAlign="center">
-                      <Icon source={EmailIcon} tone="highlight" />
-                      <Text variant="headingSm" as="h4">
-                        Direct Email Support
-                      </Text>
-                    </InlineStack>
-                    <Text variant="bodySm">
-                      Dedicated Support Email: <strong>{ADMIN_EMAIL}</strong>
-                    </Text>
-                    <Text variant="bodySm" tone="subdued">
-                      Managed Store Domain: {store.shopDomain}
-                    </Text>
-                  </BlockStack>
-                </Card>
-              </Grid.Cell>
-
-              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
-                <Card padding="400" background="bg-surface-secondary">
-                  <BlockStack gap="200">
-                    <InlineStack gap="200" blockAlign="center">
-                      <Icon source={ClockIcon} tone="highlight" />
-                      <Text variant="headingSm" as="h4">
-                        Guaranteed Support SLA Response
-                      </Text>
-                    </InlineStack>
-                    <BlockStack gap="100">
-                      <Text variant="bodySm">
-                        Plus Enterprise: <strong>1 Hour VIP Response SLA</strong>
-                      </Text>
-                      <Text variant="bodySm">
-                        Pro Advanced: <strong>4 Hours Priority Response SLA</strong>
-                      </Text>
-                      <Text variant="bodySm">
-                        Growth Plan: <strong>Within 24 Hours Response SLA</strong>
-                      </Text>
-                      <Text variant="bodySm" tone="subdued">
-                        Starter Free: Within 2 to 3 business days
-                      </Text>
-                    </BlockStack>
-                  </BlockStack>
-                </Card>
-              </Grid.Cell>
-            </Grid>
-
-            {/* Permanent Inline Support Ticket Creation Form */}
-            <div ref={supportFormRef}>
-              <Box
-                padding="500"
-                borderRadius="300"
-                background="bg-surface"
-                shadow="300"
+            <div style={{ overflowX: "auto" }}>
+              <table
                 style={{
-                  border: "1.5px solid var(--p-color-border-brand, #008060)",
-                  background: "linear-gradient(180deg, var(--p-color-bg-surface-success-subdued, #f1f8f5) 0%, var(--p-color-bg-surface, #ffffff) 100%)",
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  textAlign: "left",
+                  fontSize: "13px",
                 }}
               >
-                <BlockStack gap="400">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <InlineStack gap="200" blockAlign="center">
-                      <Icon source={SendIcon} tone="success" />
-                      <Text variant="headingMd" as="h4" fontWeight="bold">
-                        Submit Support & Escalation Inquiry
-                      </Text>
-                    </InlineStack>
-                    <Badge tone="success">Priority Queue</Badge>
-                  </InlineStack>
-
-                  {supportSavedId && (
-                    <Banner tone="success" title="Support Ticket Submitted Successfully!">
-                      <BlockStack gap="100">
-                        <Text variant="bodyMd" fontWeight="bold">{supportResult.message}</Text>
-                        <Text variant="bodySm" tone="subdued">
-                          Saved as ticket <strong>{supportResult?.ticketId}</strong>. Replies appear in your ticket history below.
-                        </Text>
-                      </BlockStack>
-                    </Banner>
-                  )}
-
-                  {validationError && (
-                    <Banner tone="critical" onDismiss={() => setValidationError("")}>
-                      <p>{validationError}</p>
-                    </Banner>
-                  )}
-
-                  {supportError && (
-                    <Banner tone="critical" title="Support ticket was not saved">
-                      <p>{supportError}</p>
-                      <p>
-                        Nothing was lost - your text is still in the form below.
-                        Try again, or email {ADMIN_EMAIL} directly.
-                      </p>
-                    </Banner>
-                  )}
-
-                  <Text variant="bodySm" tone="subdued">
-                    {`Your ${PLAN_LABELS[currentPlanId] || currentPlanId} plan response target: ${supportSla}. `}
-                    {`${supportTickets.length} ticket(s) on record for this store.`}
-                  </Text>
-
-                  <Form method="post" onSubmit={handleValidateBeforeSubmit}>
-                    <input type="hidden" name="actionType" value="SUBMIT_SUPPORT_TICKET" />
-                    <FormLayout>
-                      <Grid>
-                        <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
-                          <TextField
-                            name="merchantEmail"
-                            label="Your Contact Email"
-                            value={contactEmail}
-                            onChange={setContactEmail}
-                            placeholder="Enter your contact email address (e.g. merchant@yourstore.com)"
-                            autoComplete="email"
-                            helpText="Replies will be sent to this email address."
-                          />
-                        </Grid.Cell>
-                        <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
-                          <Select
-                            name="subject"
-                            label="Subject / Inquiry Topic"
-                            options={subjectOptions}
-                            value={supportCategory}
-                            onChange={(val) => {
-                              setSupportCategory(val);
-                              if (validationError) setValidationError("");
-                            }}
-                            helpText="Select topic category for faster routing."
-                          />
-                        </Grid.Cell>
-                      </Grid>
-
-                      {supportCategory === CUSTOM_SUBJECT_OPTION && (
-                        <TextField
-                          name="customSubject"
-                          label="Specify Custom Subject Topic"
-                          value={customSubject}
-                          onChange={(val) => {
-                            setCustomSubject(val);
-                            if (validationError) setValidationError("");
+                <thead>
+                  <tr style={{ borderBottom: "2px solid var(--p-color-border, #e1e3e5)", background: "var(--p-color-bg-surface-secondary, #f6f6f7)" }}>
+                    <th style={{ padding: "12px 16px", width: "32%" }}>Feature / Capability</th>
+                    <th style={{ padding: "12px 16px", width: "17%" }}>Starter Free</th>
+                    <th style={{ padding: "12px 16px", width: "17%" }}>
+                      {billingInterval === "yearly"
+                        ? `Growth (${calculateYearlyPricing(7.99, yearlyDiscountPercent).monthlyEquivalentFormatted}/mo)`
+                        : "Growth ($7.99/mo)"}
+                    </th>
+                    <th style={{ padding: "12px 16px", width: "17%" }}>
+                      {billingInterval === "yearly"
+                        ? `Pro (${calculateYearlyPricing(19.99, yearlyDiscountPercent).monthlyEquivalentFormatted}/mo)`
+                        : "Pro ($19.99/mo)"}
+                    </th>
+                    <th style={{ padding: "12px 16px", width: "17%" }}>
+                      {billingInterval === "yearly"
+                        ? `Enterprise (${calculateYearlyPricing(39.99, yearlyDiscountPercent).monthlyEquivalentFormatted}/mo)`
+                        : "Enterprise ($39.99/mo)"}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {featureMatrix.map((section, sIdx) => (
+                    <>
+                      <tr key={`sec-${sIdx}`} style={{ background: "var(--p-color-bg-surface-secondary, #f9fafb)" }}>
+                        <td
+                          colSpan={5}
+                          style={{
+                            padding: "10px 16px",
+                            fontWeight: "bold",
+                            color: "var(--p-color-text-subdued, #6d7175)",
+                            fontSize: "12px",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.5px",
                           }}
-                          placeholder="e.g. Question regarding custom API integration"
-                          autoComplete="off"
-                        />
-                      )}
-                      <TextField
-                        name="message"
-                        label="Detailed Message / Issue Description"
-                        value={supportMessage}
-                        onChange={(val) => {
-                          setSupportMessage(val);
-                          if (validationError) setValidationError("");
-                        }}
-                        multiline={4}
-                        placeholder="Please describe your question or issue in detail..."
-                        autoComplete="off"
-                      />
-                      <InlineStack align="end">
-                        <Button
-                          submit
-                          variant="primary"
-                          size="large"
-                          icon={SendIcon}
-                          loading={isSupportSubmitting}
                         >
-                          Submit Support Ticket
-                        </Button>
-                      </InlineStack>
-                    </FormLayout>
-                  </Form>
-                </BlockStack>
-              </Box>
+                          {section.category}
+                        </td>
+                      </tr>
+                      {section.rows.map((r, rIdx) => (
+                        <tr
+                          key={`row-${sIdx}-${rIdx}`}
+                          style={{
+                            borderBottom: "1px solid var(--p-color-border-subdued, #f1f2f3)",
+                          }}
+                        >
+                          <td style={{ padding: "12px 16px", fontWeight: "500" }}>{r.feature}</td>
+                          <td style={{ padding: "12px 16px", color: r.free === "✓" ? "#008060" : "inherit" }}>
+                            {r.free === "✓" ? <strong>✓</strong> : r.free}
+                          </td>
+                          <td style={{ padding: "12px 16px", color: r.growth === "✓" ? "#008060" : "inherit" }}>
+                            {r.growth === "✓" ? <strong>✓</strong> : r.growth}
+                          </td>
+                          <td style={{ padding: "12px 16px", color: r.pro === "✓" ? "#008060" : "inherit" }}>
+                            {r.pro === "✓" ? <strong>✓</strong> : r.pro}
+                          </td>
+                          <td style={{ padding: "12px 16px", color: r.enterprise === "✓" ? "#008060" : "inherit", fontWeight: r.enterprise === "✓" ? "bold" : "regular" }}>
+                            {r.enterprise === "✓" ? <strong>✓</strong> : r.enterprise}
+                          </td>
+                        </tr>
+                      ))}
+                    </>
+                  ))}
+                </tbody>
+              </table>
             </div>
-
-            {/* Support Ticket History */}
-            {supportTickets.length > 0 && (
-              <BlockStack gap="300">
-                <InlineStack align="space-between" blockAlign="center">
-                  <Text variant="headingSm" as="h4">
-                    Your Support Ticket History ({supportTickets.length})
-                  </Text>
-                  {isAdmin && (
-                    <Button url="/app/admin" size="micro" variant="primary">
-                      Reply as Admin in Admin Portal →
-                    </Button>
-                  )}
-                </InlineStack>
-
-                {supportTickets.map((ticket) => (
-                  <Card key={ticket.id} padding="300">
-                    <BlockStack gap="200">
-                      <InlineStack align="space-between" blockAlign="start">
-                        <BlockStack gap="100">
-                          <Text variant="bodyMd" fontWeight="bold">
-                            {ticket.subject}
-                          </Text>
-                          <Text variant="bodySm" tone="subdued">
-                            {`Opened ${new Date(ticket.createdAt).toLocaleString()}`}
-                            {ticket.repliedAt
-                              ? ` · answered ${new Date(ticket.repliedAt).toLocaleString()}`
-                              : ""}
-                          </Text>
-                        </BlockStack>
-
-                        <Badge
-                          tone={
-                            ticket.status === "OPEN"
-                              ? "attention"
-                              : ticket.status === "ANSWERED"
-                              ? "info"
-                              : "success"
-                          }
-                        >
-                          {ticket.status}
-                        </Badge>
-                      </InlineStack>
-
-                      {(ticket.messages || []).map((msg) => {
-                        const isAdminMsg = msg.sender === "ADMIN";
-                        return (
-                          <Box
-                            key={msg.id}
-                            padding="300"
-                            borderRadius="150"
-                            background={
-                              isAdminMsg
-                                ? "bg-surface-success-subdued"
-                                : "bg-surface-secondary"
-                            }
-                            style={
-                              isAdminMsg
-                                ? { borderLeft: "4px solid var(--p-color-border-brand, #008060)" }
-                                : undefined
-                            }
-                          >
-                            <BlockStack gap="100">
-                              <InlineStack align="space-between" blockAlign="center">
-                                <InlineStack gap="200" blockAlign="center">
-                                  <Text
-                                    variant="bodySm"
-                                    fontWeight="bold"
-                                    tone={isAdminMsg ? "success" : undefined}
-                                  >
-                                    {isAdminMsg
-                                      ? `Support Team (${msg.authorEmail || ADMIN_EMAIL})`
-                                      : `You (${msg.authorEmail || ticket.merchantEmail})`}
-                                  </Text>
-                                  {isAdminMsg && <Badge tone="success">ADMIN RESPONSE</Badge>}
-                                </InlineStack>
-                                <Text variant="bodySm" tone="subdued">
-                                  {new Date(msg.createdAt).toLocaleString()}
-                                </Text>
-                              </InlineStack>
-                              <Text variant="bodySm" fontWeight={isAdminMsg ? "medium" : undefined}>
-                                {msg.body}
-                              </Text>
-                            </BlockStack>
-                          </Box>
-                        );
-                      })}
-
-                      {ticket.status !== "RESOLVED" && (
-                        <Form method="post">
-                          <input type="hidden" name="actionType" value="REPLY_SUPPORT_TICKET" />
-                          <input type="hidden" name="ticketId" value={ticket.id} />
-                          <InlineStack gap="200" blockAlign="end" wrap={false}>
-                            <div style={{ flex: 1 }}>
-                              <TextField
-                                name="replyText"
-                                label="Reply to support"
-                                labelHidden
-                                value={ticketReplies[ticket.id] || ""}
-                                onChange={(val) =>
-                                  setTicketReplies((prev) => ({ ...prev, [ticket.id]: val }))
-                                }
-                                placeholder="Add more detail or answer support's question..."
-                                multiline={2}
-                                autoComplete="off"
-                              />
-                            </div>
-                            <Button submit icon={SendIcon} loading={isSupportSubmitting}>
-                              Send Reply
-                            </Button>
-                          </InlineStack>
-                        </Form>
-                      )}
-                    </BlockStack>
-                  </Card>
-                ))}
-              </BlockStack>
-            )}
           </BlockStack>
         </Card>
       </BlockStack>

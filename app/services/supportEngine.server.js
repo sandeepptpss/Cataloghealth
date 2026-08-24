@@ -1,4 +1,3 @@
-/* global process */
 import prisma from "../db.server.js";
 import { getPlanConfig, normalizePlanId } from "./planEngine.server.js";
 import { sendEmail } from "./emailService.server.js";
@@ -25,10 +24,10 @@ export function ticketSlaLabel(planAtSubmission) {
 }
 
 /** Raise a ticket with its opening message. */
-export async function createTicket({ storeId, subject, message, merchantEmail, plan }) {
+export async function createTicket({ storeId, subject, message, merchantEmail, contactEmail, plan }) {
   const cleanSubject = cleanText(subject).slice(0, MAX_SUBJECT);
   const cleanMessage = cleanText(message);
-  const contact = cleanText(merchantEmail);
+  const contact = cleanText(merchantEmail || contactEmail);
 
   if (!cleanSubject || !cleanMessage) {
     return {
@@ -42,16 +41,16 @@ export async function createTicket({ storeId, subject, message, merchantEmail, p
   }
 
   const adminEmail = process.env.ADMIN_EMAIL || "sandeepptpss@gmail.com";
-  const recipient = contact || adminEmail;
   const now = new Date();
 
   // Retrieve store shop domain for context
   const store = await prisma.store.findUnique({
     where: { id: storeId },
-    select: { shopDomain: true, adminEmail: true },
+    select: { shopDomain: true, adminEmail: true, plan: true },
   });
   const shopDomain = store?.shopDomain || "Unknown Store";
   const finalMerchantEmail = contact || store?.adminEmail || adminEmail;
+  const storePlan = plan || store?.plan;
 
   const ticket = await prisma.supportTicket.create({
     data: {
@@ -60,7 +59,7 @@ export async function createTicket({ storeId, subject, message, merchantEmail, p
       message: cleanMessage,
       merchantEmail: finalMerchantEmail,
       status: TICKET_STATUS.OPEN,
-      planAtSubmission: normalizePlanId(plan) || "free",
+      planAtSubmission: normalizePlanId(storePlan) || "free",
       lastMessageAt: now,
       messages: {
         create: {

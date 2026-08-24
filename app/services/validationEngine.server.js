@@ -146,8 +146,8 @@ export function validateProductData({
           title: `Missing SKU for Variant "${variant.title || 'Default'}"`,
           description: `Variant "${variant.title || 'Default'}" does not have a SKU assigned.`,
         });
-      } else {
-        // Duplicate SKU Check
+      } else if (planConfig.duplicateSku) {
+        // Duplicate SKU Check (Growth plan and above)
         const occurrences = skuCountMap.get(normSku) || 0;
         if (occurrences > 1) {
           issues.push({

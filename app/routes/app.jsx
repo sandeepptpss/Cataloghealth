@@ -34,7 +34,8 @@ export default function App() {
             <a href="/app" rel="home">Catalog Health</a>
             <a href="/app">Dashboard</a>
             <a href="/app/rules">Validation Rules</a>
-            <a href="/app/scans">Scan Logs</a>
+            <a href="/app/scans">Logs</a>
+            <a href="/app/help">Help</a>
             <a href="/app/plans">Plans</a>
             {isAdmin && <a href="/app/admin">Admin Portal</a>}
           </ui-nav-menu>

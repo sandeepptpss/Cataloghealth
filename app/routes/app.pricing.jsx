@@ -28,7 +28,9 @@ import {
   normalizePlanId,
 } from "../services/planEngine.server.js";
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "sandeepptpss@gmail.com";
+// Server-only read: this module is evaluated in the browser too, where
+// `process` is undefined and a top-level read would break hydration.
+const getAdminEmail = () => process.env.ADMIN_EMAIL || "sandeepptpss@gmail.com";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -40,7 +42,7 @@ export const loader = async ({ request }) => {
     take: 10,
   });
 
-  return { store, supportTickets };
+  return { store, supportTickets, adminEmail: getAdminEmail() };
 };
 
 export const action = async ({ request }) => {
@@ -75,25 +77,31 @@ export const action = async ({ request }) => {
   if (actionType === "SUBMIT_SUPPORT_TICKET") {
     const subject = (formData.get("subject") || "").toString().trim();
     const message = (formData.get("message") || "").toString().trim();
-    const merchantEmail = (formData.get("merchantEmail") || "").toString().trim() || ADMIN_EMAIL;
+    const merchantEmail = (formData.get("merchantEmail") || "").toString().trim() || getAdminEmail();
 
     if (subject && message) {
-      await prisma.supportTicket.create({
-        data: {
-          storeId: store.id,
-          subject,
-          message,
-          merchantEmail,
-          status: "OPEN",
-        },
+      const { createTicket } = await import("../services/supportEngine.server.js");
+      const res = await createTicket({
+        storeId: store.id,
+        merchantEmail,
+        subject,
+        message,
+        plan: store.plan,
       });
+
+      if (!res.success) {
+        return { success: false, error: res.error || "Failed to create support ticket." };
+      }
 
       await prisma.store.update({
         where: { id: store.id },
         data: { adminEmail: merchantEmail },
       });
 
-      return { success: true, message: `Support ticket sent to ${ADMIN_EMAIL} successfully!` };
+      return {
+        success: true,
+        message: `Support ticket sent to ${getAdminEmail()} successfully!`,
+      };
     }
   }
 
@@ -101,7 +109,7 @@ export const action = async ({ request }) => {
 };
 
 export default function PricingPlans() {
-  const { store, supportTickets } = useLoaderData();
+  const { store, supportTickets, adminEmail: ADMIN_EMAIL } = useLoaderData();
   const actionData = useActionData();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -190,7 +198,7 @@ export default function PricingPlans() {
       badgeTone: "subdued",
       description: "Essential health checks for growing Shopify catalogs.",
       features: [
-        "Audit up to 250 products",
+        "Audit up to 500 products",
         "Basic Missing SKU & Price checks",
         "Weekly manual catalog scan",
         "Standard Dashboard Metrics",
@@ -200,13 +208,13 @@ export default function PricingPlans() {
     {
       id: "growth",
       name: "Growth Plan",
-      price: "$9",
+      price: "$7.99",
       period: "/month",
       badge: "Growing Stores",
       badgeTone: "info",
       description: "Automated daily catalog audits & duplicate SKU detection.",
       features: [
-        "Audit up to 2,500 products",
+        "Audit up to 3,000 products",
         "Automated Daily Catalog Scans",
         "Missing Image & Zero-Price Detection",
         "Duplicate SKU Detection Engine",
@@ -217,13 +225,13 @@ export default function PricingPlans() {
     {
       id: "pro",
       name: "Pro Advanced",
-      price: "$29",
+      price: "$19.99",
       period: "/month",
       badge: "Most Popular",
       badgeTone: "highlight",
       description: "Real-time webhook monitoring & custom metafield compliance engine.",
       features: [
-        "Audit up to 10,000 products",
+        "Audit up to 15,000 products",
         "Real-time Webhook Instant Scans",
         "Required Metafield & Barcode Audit",
         "Custom Validation Rule Builder",
@@ -234,7 +242,7 @@ export default function PricingPlans() {
     {
       id: "enterprise",
       name: "Plus Enterprise",
-      price: "$49",
+      price: "$39.99",
       period: "/month",
       badge: "Unlimited",
       badgeTone: "success",

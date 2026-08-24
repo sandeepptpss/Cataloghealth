@@ -32,6 +32,10 @@ import {
   RefreshIcon,
   SearchIcon,
   ViewIcon,
+  AlertCircleIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  MagicIcon,
 } from "@shopify/polaris-icons";
 import { useCallback, useEffect, useState } from "react";
 import { authenticate } from "../shopify.server.js";
@@ -296,6 +300,7 @@ export default function Dashboard() {
   const isLoading = navigation.state !== "idle";
 
   const [searchInput, setSearchInput] = useState(query);
+  const [showAlerts, setShowAlerts] = useState(false);
 
   // Keep the box in step when the URL changes from elsewhere (back button).
   useEffect(() => {
@@ -369,24 +374,39 @@ export default function Dashboard() {
   const scanRunning = queue.PENDING > 0 || queue.PROCESSING > 0;
 
   const issueRows = issues.map((issue) => [
-    <Badge
-      key={`sev-${issue.id}`}
-      tone={
-        issue.severity === "CRITICAL"
-          ? "critical"
-          : issue.severity === "WARNING"
-          ? "warning"
-          : "info"
-      }
+    <Box key={`sev-${issue.id}`}>
+      <Badge
+        tone={
+          issue.severity === "CRITICAL"
+            ? "critical"
+            : issue.severity === "WARNING"
+            ? "warning"
+            : "info"
+        }
+      >
+        {issue.severity}
+      </Badge>
+    </Box>,
+    <BlockStack key={`title-${issue.id}`} gap="050">
+      <Text variant="bodyMd" fontWeight="bold" as="span">
+        {issue.title}
+      </Text>
+      {issue.fieldName && (
+        <Text variant="bodyXs" tone="subdued" as="span">
+          Field: <code style={{ background: "#f1f5f9", padding: "1px 4px", borderRadius: "3px", fontSize: "11px" }}>{issue.fieldName}</code>
+        </Text>
+      )}
+    </BlockStack>,
+    <Button
+      key={`prod-${issue.id}`}
+      variant="plain"
+      onClick={() => navigate(`/app/product/${issue.productId}`)}
+      accessibilityLabel={`View product details for ${issue.product?.title || "Product"}`}
     >
-      {issue.severity}
-    </Badge>,
-    <Text key={`title-${issue.id}`} variant="bodyMd" fontWeight="bold">
-      {issue.title}
-    </Text>,
-    <Text key={`prod-${issue.id}`} variant="bodyMd">
-      {issue.product?.title || "N/A"}
-    </Text>,
+      <Text variant="bodyMd" fontWeight="bold" as="span">
+        {issue.product?.title || "N/A"}
+      </Text>
+    </Button>,
     <Badge
       key={`stat-${issue.id}`}
       tone={
@@ -399,24 +419,35 @@ export default function Dashboard() {
     >
       {issue.status}
     </Badge>,
-    <InlineStack key={`act-${issue.id}`} gap="200">
+    <InlineStack key={`act-${issue.id}`} gap="200" blockAlign="center">
       {issue.status === "OPEN" && planConfig.autoFix && (
-        <Button size="micro" tone="success" onClick={() => handleAutoFix(issue.id)}>
-          Auto-Fix ⚡
+        <Button
+          size="micro"
+          variant="primary"
+          icon={MagicIcon}
+          onClick={() => handleAutoFix(issue.id)}
+        >
+          Auto-Fix
         </Button>
       )}
       {issue.status === "OPEN" && (
-        <Button size="micro" tone="critical" onClick={() => handleIgnoreIssue(issue.id)}>
+        <Button
+          size="micro"
+          variant="tertiary"
+          tone="critical"
+          onClick={() => handleIgnoreIssue(issue.id)}
+        >
           Ignore
         </Button>
       )}
       {issue.status === "IGNORED" && (
-        <Button size="micro" onClick={() => handleUnignoreIssue(issue.id)}>
+        <Button size="micro" variant="tertiary" onClick={() => handleUnignoreIssue(issue.id)}>
           Unignore
         </Button>
       )}
       <Button
         size="micro"
+        variant="secondary"
         icon={ViewIcon}
         onClick={() => navigate(`/app/product/${issue.productId}`)}
       >
@@ -489,41 +520,66 @@ export default function Dashboard() {
         )}
 
         {criticalIssuesCount > 0 && (
-          <Banner
-            title={`${criticalIssuesCount} Critical Catalog Issues Detected!`}
-            tone="critical"
-            action={{
-              content: "View Critical Issues ↗",
-              onClick: () => updateParams({ tab: "critical", page: 1 }),
+          <Box
+            padding="300"
+            borderRadius="200"
+            style={{
+              background: "#FEF2F2",
+              border: "1px solid #FECACA",
+              borderLeft: "4px solid #EF4444",
             }}
           >
-            <p>
-              Your store catalog has critical errors (missing images, zero/negative pricing, or duplicate SKUs) that impact customer purchases. Click above to view and resolve them immediately.
-            </p>
-          </Banner>
+            <InlineStack align="space-between" blockAlign="center">
+              <InlineStack gap="200" blockAlign="center">
+                <Badge tone="critical">CRITICAL ALERT</Badge>
+                <Text variant="bodySm" fontWeight="bold">
+                  {criticalIssuesCount} critical catalog issue(s) detected affecting product availability.
+                </Text>
+              </InlineStack>
+              <Button
+                size="micro"
+                variant="primary"
+                tone="critical"
+                onClick={() => updateParams({ tab: "critical", page: 1 })}
+              >
+                View Critical Issues
+              </Button>
+            </InlineStack>
+          </Box>
         )}
 
         <Layout>
           <Layout.Section variant="oneThird">
             <Card padding="500">
-              <BlockStack gap="400" align="center">
-                <Text variant="headingMd" as="h3" alignment="center">
+              <BlockStack gap="300" align="center">
+                <Text variant="headingMd" as="h3" fontWeight="bold" alignment="center">
                   Store Health Score
                 </Text>
-                <div style={{ textAlign: "center", position: "relative" }}>
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "16px 20px",
+                    borderRadius: "16px",
+                    background: store.healthScore >= 85 ? "#F0FDF4" : store.healthScore >= 60 ? "#FFFBEB" : "#FEF2F2",
+                    border: store.healthScore >= 85 ? "1px solid #BBF7D0" : store.healthScore >= 60 ? "1px solid #FDE68A" : "1px solid #FECACA",
+                    boxShadow: "0 2px 10px rgba(0,0,0,0.03)",
+                    width: "100%",
+                  }}
+                >
                   <div
                     style={{
                       fontSize: "48px",
                       fontWeight: "900",
+                      letterSpacing: "-1px",
                       color: scoreColor,
-                      lineHeight: "1",
+                      lineHeight: "1.1",
                     }}
                   >
                     {store.healthScore.toFixed(1)}%
                   </div>
-                  <Text variant="bodySm" tone="subdued" alignment="center">
+                  <Text variant="bodySm" fontWeight="bold" tone={store.healthScore >= 85 ? "success" : store.healthScore >= 60 ? "caution" : "critical"}>
                     {store.healthScore >= 85
-                      ? "Excellent Catalog Health"
+                      ? "Excellent Catalog Quality"
                       : store.healthScore >= 60
                       ? "Needs Attention"
                       : "Critical Fixes Required"}
@@ -546,124 +602,125 @@ export default function Dashboard() {
           <Layout.Section variant="twoThirds">
             <Card padding="500">
               <BlockStack gap="400">
-                <Text variant="headingMd" as="h3">
+                <Text variant="headingMd" as="h3" fontWeight="bold">
                   Catalog Overview Metrics
                 </Text>
                 <InlineStack gap="300" wrap={false} align="space-between">
                   <Box
                     padding="300"
-                    borderRadius="200"
+                    borderRadius="300"
                     background="bg-surface-secondary"
-                    style={{ flex: 1, textAlign: "center" }}
+                    style={{
+                      flex: 1,
+                      textAlign: "center",
+                      border: "1px solid var(--p-color-border-subdued)",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                    }}
                   >
-                    <Text variant="headingLg" as="p" fontWeight="bold">
+                    <Text variant="heading2xl" as="p" fontWeight="bold">
                       {totalProducts}
                     </Text>
-                    <Text variant="bodySm" tone="subdued">
+                    <Text variant="bodySm" tone="subdued" fontWeight="medium">
                       Total Products
                     </Text>
                   </Box>
 
                   <Box
                     padding="300"
-                    borderRadius="200"
+                    borderRadius="300"
                     background="bg-surface-secondary"
-                    style={{ flex: 1, textAlign: "center" }}
+                    style={{
+                      flex: 1,
+                      textAlign: "center",
+                      border: "1px solid var(--p-color-border-subdued)",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                    }}
                   >
                     <Text
-                      variant="headingLg"
+                      variant="heading2xl"
                       as="p"
                       fontWeight="bold"
                       tone={productsWithIssues > 0 ? "critical" : "success"}
                     >
                       {productsWithIssues}
                     </Text>
-                    <Text variant="bodySm" tone="subdued">
+                    <Text variant="bodySm" tone="subdued" fontWeight="medium">
                       Products w/ Issues
                     </Text>
                   </Box>
 
                   <Box
                     padding="300"
-                    borderRadius="200"
+                    borderRadius="300"
                     onClick={() => updateParams({ tab: "critical", page: 1 })}
                     style={{
                       flex: 1,
                       textAlign: "center",
                       cursor: "pointer",
                       backgroundColor: tabId === "critical" ? "#FEE2E2" : "#FEF2F2",
-                      border: "1.5px solid #FCA5A5",
-                      transition: "all 0.15s ease-in-out",
-                      boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                      border: tabId === "critical" ? "2px solid #EF4444" : "1.5px solid #FCA5A5",
+                      transition: "all 0.2s ease-in-out",
+                      boxShadow: tabId === "critical" ? "0 4px 12px rgba(239,68,68,0.2)" : "0 1px 3px rgba(0,0,0,0.03)",
                     }}
-                    title="Click to view Critical Issues"
+                    title="Click to filter Critical Issues"
                   >
                     <BlockStack gap="050" align="center">
-                      <Text variant="headingLg" as="p" fontWeight="bold" tone="critical">
+                      <Text variant="heading2xl" as="p" fontWeight="bold" tone="critical">
                         {criticalIssuesCount}
                       </Text>
-                      <InlineStack gap="100" align="center">
-                        <Text variant="bodySm" fontWeight="bold" tone="critical">
-                          Critical Issues
-                        </Text>
-                        <Text variant="bodySm" tone="critical">↗</Text>
-                      </InlineStack>
+                      <Text variant="bodySm" fontWeight="bold" tone="critical">
+                        Critical Issues
+                      </Text>
                     </BlockStack>
                   </Box>
 
                   <Box
                     padding="300"
-                    borderRadius="200"
+                    borderRadius="300"
                     onClick={() => updateParams({ tab: "warning", page: 1 })}
                     style={{
                       flex: 1,
                       textAlign: "center",
                       cursor: "pointer",
                       backgroundColor: tabId === "warning" ? "#FEF3C7" : "#FFFBEB",
-                      border: "1.5px solid #FDE68A",
-                      transition: "all 0.15s ease-in-out",
-                      boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                      border: tabId === "warning" ? "2px solid #F59E0B" : "1.5px solid #FDE68A",
+                      transition: "all 0.2s ease-in-out",
+                      boxShadow: tabId === "warning" ? "0 4px 12px rgba(245,158,11,0.2)" : "0 1px 3px rgba(0,0,0,0.03)",
                     }}
-                    title="Click to view Warning Issues"
+                    title="Click to filter Warnings"
                   >
                     <BlockStack gap="050" align="center">
-                      <Text variant="headingLg" as="p" fontWeight="bold" tone="caution">
+                      <Text variant="heading2xl" as="p" fontWeight="bold" tone="caution">
                         {warningIssuesCount}
                       </Text>
-                      <InlineStack gap="100" align="center">
-                        <Text variant="bodySm" fontWeight="bold" tone="caution">
-                          Warnings
-                        </Text>
-                        <Text variant="bodySm" tone="caution">↗</Text>
-                      </InlineStack>
+                      <Text variant="bodySm" fontWeight="bold" tone="caution">
+                        Warnings
+                      </Text>
                     </BlockStack>
                   </Box>
 
                   <Box
                     padding="300"
-                    borderRadius="200"
+                    borderRadius="300"
                     onClick={() => updateParams({ tab: "resolved", page: 1 })}
                     style={{
                       flex: 1,
                       textAlign: "center",
                       cursor: "pointer",
                       backgroundColor: tabId === "resolved" ? "#DCFCE7" : "#F0FDF4",
-                      border: "1.5px solid #86EFAC",
-                      transition: "all 0.15s ease-in-out",
-                      boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                      border: tabId === "resolved" ? "2px solid #22C55E" : "1.5px solid #86EFAC",
+                      transition: "all 0.2s ease-in-out",
+                      boxShadow: tabId === "resolved" ? "0 4px 12px rgba(34,197,94,0.2)" : "0 1px 3px rgba(0,0,0,0.03)",
                     }}
-                    title="Click to view Resolved Issues"
+                    title="Click to filter Resolved Issues"
                   >
                     <BlockStack gap="050" align="center">
-                      <Text variant="headingLg" as="p" fontWeight="bold" tone="success">
+                      <Text variant="heading2xl" as="p" fontWeight="bold" tone="success">
                         {resolvedIssuesCount}
                       </Text>
-                      <InlineStack gap="100" align="center">
-                        <Text variant="bodySm" fontWeight="bold" tone="success">
-                          Resolved
-                        </Text>
-                        <Text variant="bodySm" tone="success">↗</Text>
-                      </InlineStack>
+                      <Text variant="bodySm" fontWeight="bold" tone="success">
+                        Resolved
+                      </Text>
                     </BlockStack>
                   </Box>
                 </InlineStack>
@@ -681,52 +738,81 @@ export default function Dashboard() {
         </Layout>
 
         {alerts.length > 0 && (
-          <Card padding="500">
+          <Card padding="400">
             <BlockStack gap="300">
-              <Text variant="headingMd" as="h3">
-                Recent Alerts
-              </Text>
-              <Text variant="bodySm" tone="subdued">
-                Click any alert card below to filter matching issues in the table.
-              </Text>
-              <BlockStack gap="200">
-                {alerts.map((alert) => (
-                  <Box
-                    key={alert.id}
-                    padding="300"
-                    borderRadius="200"
-                    background="bg-surface-secondary"
-                    onClick={() => updateParams({ tab: alert.criticalCount > 0 ? "critical" : "all", page: 1 })}
-                    style={{
-                      cursor: "pointer",
-                      borderLeft: alert.criticalCount > 0 ? "4px solid var(--p-color-bg-fill-critical)" : "4px solid var(--p-color-bg-fill-info)",
-                    }}
-                    title="Click to filter issues for this alert"
-                  >
-                    <BlockStack gap="100">
-                      <InlineStack gap="200" blockAlign="center" align="space-between">
-                        <InlineStack gap="200" blockAlign="center">
-                          <Badge tone={alert.criticalCount > 0 ? "critical" : "info"}>
-                            {alert.type === "CRITICAL_ALERT" ? "Critical Alert" : "Daily Digest"}
-                          </Badge>
-                          <Text variant="bodyMd" fontWeight="bold">
-                            {alert.title}
+              <InlineStack align="space-between" blockAlign="center">
+                <InlineStack gap="200" blockAlign="center">
+                  <Icon source={AlertCircleIcon} tone="subdued" />
+                  <Text variant="headingSm" as="h3" fontWeight="bold">
+                    Recent System Alerts & Audit Logs ({alerts.length})
+                  </Text>
+                </InlineStack>
+                <Button
+                  size="micro"
+                  variant="tertiary"
+                  icon={showAlerts ? ChevronUpIcon : ChevronDownIcon}
+                  onClick={() => setShowAlerts((prev) => !prev)}
+                >
+                  {showAlerts ? "Hide Alerts" : "View Recent Alerts"}
+                </Button>
+              </InlineStack>
+
+              {showAlerts && (
+                <BlockStack gap="200">
+                  <Text variant="bodySm" tone="subdued">
+                    Click any alert to filter matching issues in the table below:
+                  </Text>
+                  <BlockStack gap="200">
+                    {alerts.map((alert) => (
+                      <Box
+                        key={alert.id}
+                        padding="300"
+                        borderRadius="200"
+                        background="bg-surface-secondary"
+                        onClick={() =>
+                          updateParams({
+                            tab: alert.criticalCount > 0 ? "critical" : "all",
+                            page: 1,
+                          })
+                        }
+                        style={{
+                          cursor: "pointer",
+                          borderLeft:
+                            alert.criticalCount > 0
+                              ? "4px solid var(--p-color-bg-fill-critical)"
+                              : "4px solid var(--p-color-bg-fill-info)",
+                        }}
+                        title="Click to filter matching issues"
+                      >
+                        <InlineStack gap="200" blockAlign="center" align="space-between">
+                          <InlineStack gap="200" blockAlign="center">
+                            <Badge
+                              tone={alert.criticalCount > 0 ? "critical" : "info"}
+                              size="small"
+                            >
+                              {alert.type === "CRITICAL_ALERT"
+                                ? "Critical Alert"
+                                : "Daily Digest"}
+                            </Badge>
+                            <Text variant="bodySm" fontWeight="bold">
+                              {alert.title}
+                            </Text>
+                            <Badge
+                              tone={alert.status === "SENT" ? "success" : "attention"}
+                              size="small"
+                            >
+                              {alert.status}
+                            </Badge>
+                          </InlineStack>
+                          <Text variant="bodySm" tone="subdued">
+                            Logged: {new Date(alert.createdAt).toLocaleString()}
                           </Text>
-                          <Badge tone={alert.status === "SENT" ? "success" : "attention"}>
-                            {alert.status}
-                          </Badge>
                         </InlineStack>
-                        <Button size="micro" variant="tertiary">
-                          Filter Matching Issues ↗
-                        </Button>
-                      </InlineStack>
-                      <Text variant="bodySm" tone="subdued">
-                        Logged on: {new Date(alert.createdAt).toLocaleString()}
-                      </Text>
-                    </BlockStack>
-                  </Box>
-                ))}
-              </BlockStack>
+                      </Box>
+                    ))}
+                  </BlockStack>
+                </BlockStack>
+              )}
             </BlockStack>
           </Card>
         )}

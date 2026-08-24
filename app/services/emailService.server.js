@@ -1,5 +1,3 @@
-/* global process */
-
 /**
  * Transactional Email Service via Resend API
  */

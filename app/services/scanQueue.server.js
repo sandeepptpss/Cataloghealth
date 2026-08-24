@@ -256,6 +256,13 @@ async function completeJob(job) {
       lastError: null,
     },
   });
+
+  // Clear stale failed jobs once a scan finishes successfully
+  if (job.jobType === JOB_TYPE.FULL_SCAN) {
+    await prisma.scanJob.deleteMany({
+      where: { storeId: job.storeId, status: "FAILED" },
+    }).catch(() => {});
+  }
 }
 
 async function failJob(job, error) {
