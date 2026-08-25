@@ -1,9 +1,10 @@
 /* global process */
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   Outlet,
   useLoaderData,
   useNavigation,
+  useLocation,
   useRouteError,
   Link as ReactRouterLink,
 } from "react-router";
@@ -12,6 +13,8 @@ import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-react-ro
 import {
   AppProvider as PolarisProvider,
   Frame,
+  Spinner,
+  Text,
 } from "@shopify/polaris";
 import enTranslations from "@shopify/polaris/locales/en.json";
 import { authenticate } from "../shopify.server";
@@ -68,12 +71,57 @@ function useAppNavMenu(isAdmin) {
   );
 }
 
+function UserFriendlyPageLoader({ isVisible }) {
+  if (!isVisible) return null;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: "20px",
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 999999,
+        pointerEvents: "none",
+      }}
+    >
+      <div
+        style={{
+          background: "#ffffff",
+          border: "1px solid #c9cccf",
+          borderRadius: "24px",
+          padding: "8px 20px",
+          boxShadow: "0 8px 24px rgba(0, 0, 0, 0.12)",
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+        }}
+      >
+        <Spinner size="small" tone="primary" accessibilityLabel="Loading page" />
+        <Text variant="bodySm" fontWeight="bold">
+          Loading page...
+        </Text>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const { apiKey, isAdmin } = useLoaderData();
   const navigation = useNavigation();
+  const location = useLocation();
 
-  // Active during data fetching / route transitions
-  const isNavigating = navigation.state !== "idle";
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    setIsLoading(true);
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [location.pathname, location.search]);
+
+  const showLoader = isLoading || navigation.state !== "idle";
   const navMenu = useAppNavMenu(isAdmin);
 
   return (
@@ -82,9 +130,10 @@ export default function App() {
         <Frame>
           {navMenu}
           <div
-            className={`top-loading-bar${isNavigating ? " is-active" : ""}`}
+            className={`top-loading-bar${showLoader ? " is-active" : ""}`}
             aria-hidden="true"
           />
+          <UserFriendlyPageLoader isVisible={showLoader} />
           <div className="app-content-container">
             <Outlet />
           </div>
