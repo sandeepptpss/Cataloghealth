@@ -78,9 +78,8 @@ function UserFriendlyPageLoader({ isVisible }) {
     <div
       style={{
         position: "fixed",
-        top: "16px",
-        left: "50%",
-        transform: "translateX(-50%)",
+        top: "14px",
+        right: "20px",
         zIndex: 999999,
         pointerEvents: "none",
       }}
@@ -89,17 +88,17 @@ function UserFriendlyPageLoader({ isVisible }) {
         style={{
           background: "#ffffff",
           border: "1px solid #c9cccf",
-          borderRadius: "24px",
-          padding: "6px 18px",
-          boxShadow: "0 6px 20px rgba(0, 0, 0, 0.1)",
+          borderRadius: "20px",
+          padding: "6px 14px",
+          boxShadow: "0 4px 14px rgba(0, 0, 0, 0.08)",
           display: "flex",
           alignItems: "center",
           gap: "8px",
         }}
       >
         <Spinner size="small" tone="primary" />
-        <Text variant="bodySm" fontWeight="bold">
-          Loading page...
+        <Text variant="bodyXs" fontWeight="bold" tone="subdued">
+          Loading...
         </Text>
       </div>
     </div>
