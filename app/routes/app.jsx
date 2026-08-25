@@ -112,16 +112,24 @@ export default function App() {
   const location = useLocation();
 
   const [isLoading, setIsLoading] = useState(true);
+  const [isContentReady, setIsContentReady] = useState(false);
 
   useEffect(() => {
     setIsLoading(true);
+    setIsContentReady(false);
+
     const timer = setTimeout(() => {
       setIsLoading(false);
+      setTimeout(() => {
+        setIsContentReady(true);
+      }, 60);
     }, 800);
+
     return () => clearTimeout(timer);
   }, [location.pathname, location.search]);
 
   const showLoader = isLoading || navigation.state !== "idle";
+  const showContent = !showLoader && isContentReady;
   const navMenu = useAppNavMenu(isAdmin);
 
   return (
@@ -133,9 +141,9 @@ export default function App() {
           <div
             className="app-content-container"
             style={{
-              opacity: showLoader ? 0 : 1,
-              visibility: showLoader ? "hidden" : "visible",
-              transition: "opacity 0.2s ease-in-out",
+              opacity: showContent ? 1 : 0,
+              visibility: showContent ? "visible" : "hidden",
+              transition: "opacity 0.25s ease-out",
               minHeight: "100vh",
               backgroundColor: "#f1f2f4",
             }}
