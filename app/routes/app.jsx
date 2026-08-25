@@ -1,9 +1,23 @@
 /* global process */
-import { useMemo, useEffect } from "react";
-import { Outlet, useLoaderData, useNavigate, useNavigation, useLocation, useRouteError, Link as ReactRouterLink } from "react-router";
+import { useMemo, useEffect, useState } from "react";
+import {
+  Outlet,
+  useLoaderData,
+  useNavigation,
+  useLocation,
+  useRouteError,
+  Link as ReactRouterLink,
+} from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-react-router/react";
-import { AppProvider as PolarisProvider, Frame } from "@shopify/polaris";
+import {
+  AppProvider as PolarisProvider,
+  Frame,
+  Spinner,
+  Text,
+  BlockStack,
+  Box,
+} from "@shopify/polaris";
 import enTranslations from "@shopify/polaris/locales/en.json";
 import { authenticate } from "../shopify.server";
 
@@ -59,10 +73,71 @@ function useAppNavMenu(isAdmin) {
   );
 }
 
+function PageLoadingOverlay({ isVisible }) {
+  if (!isVisible) return null;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: "rgba(246, 246, 247, 0.85)",
+        backdropFilter: "blur(6px)",
+        WebkitBackdropFilter: "blur(6px)",
+        zIndex: 99999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Box
+        padding="600"
+        background="bg-surface"
+        borderRadius="400"
+        shadow="400"
+        style={{
+          minWidth: "260px",
+          textAlign: "center",
+          border: "1px solid var(--p-color-border-subdued, #e1e3e5)",
+          boxShadow: "0 10px 30px rgba(0,0,0,0.12)",
+        }}
+      >
+        <BlockStack gap="300" align="center">
+          <Spinner accessibilityLabel="Loading page" size="large" tone="primary" />
+          <BlockStack gap="100">
+            <Text variant="headingSm" as="h3" fontWeight="bold">
+              Loading Catalog Health...
+            </Text>
+            <Text variant="bodyXs" tone="subdued">
+              Please wait while the page loads
+            </Text>
+          </BlockStack>
+        </BlockStack>
+      </Box>
+    </div>
+  );
+}
+
 export default function App() {
   const { apiKey, isAdmin } = useLoaderData();
   const navigation = useNavigation();
-  const isNavigating = navigation.state === "loading" && navigation.formData == null;
+  const location = useLocation();
+
+  const [isPageSwitching, setIsPageSwitching] = useState(false);
+
+  useEffect(() => {
+    setIsPageSwitching(true);
+    const timer = setTimeout(() => {
+      setIsPageSwitching(false);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [location.pathname, location.search]);
+
+  const isNavigating =
+    isPageSwitching || (navigation.state === "loading" && navigation.formData == null);
   const navMenu = useAppNavMenu(isAdmin);
 
   return (
@@ -74,6 +149,7 @@ export default function App() {
             className={`top-loading-bar${isNavigating ? " is-active" : ""}`}
             aria-hidden="true"
           />
+          <PageLoadingOverlay isVisible={isNavigating} />
           <div className="app-content-container">
             <Outlet />
           </div>
