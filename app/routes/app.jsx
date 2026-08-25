@@ -71,35 +71,49 @@ function useAppNavMenu(isAdmin) {
   );
 }
 
-function UserFriendlyPageLoader({ isVisible }) {
+function FullPageLoadingScreen({ isVisible }) {
   if (!isVisible) return null;
 
   return (
     <div
       style={{
         position: "fixed",
-        top: "14px",
-        right: "20px",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: "#f1f2f4",
         zIndex: 999999,
-        pointerEvents: "none",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
       }}
     >
       <div
         style={{
           background: "#ffffff",
-          border: "1px solid #c9cccf",
-          borderRadius: "20px",
-          padding: "6px 14px",
-          boxShadow: "0 4px 14px rgba(0, 0, 0, 0.08)",
+          padding: "32px 40px",
+          borderRadius: "16px",
+          boxShadow: "0 4px 20px rgba(0, 0, 0, 0.06)",
+          border: "1px solid #e1e3e5",
+          textAlign: "center",
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
-          gap: "8px",
+          gap: "16px",
+          minWidth: "260px",
         }}
       >
-        <Spinner size="small" tone="primary" />
-        <Text variant="bodyXs" fontWeight="bold" tone="subdued">
-          Loading...
-        </Text>
+        <Spinner size="large" tone="primary" />
+        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+          <Text variant="headingMd" as="h2" fontWeight="bold">
+            Loading Catalog Health
+          </Text>
+          <Text variant="bodySm" tone="subdued">
+            Fetching metrics & data...
+          </Text>
+        </div>
       </div>
     </div>
   );
@@ -116,7 +130,7 @@ export default function App() {
     setIsLoading(true);
     const timer = setTimeout(() => {
       setIsLoading(false);
-    }, 1000);
+    }, 700);
     return () => clearTimeout(timer);
   }, [location.pathname, location.search]);
 
@@ -128,8 +142,15 @@ export default function App() {
       <PolarisProvider i18n={enTranslations} linkComponent={PolarisLink}>
         <Frame>
           {navMenu}
-          <UserFriendlyPageLoader isVisible={showLoader} />
-          <div className="app-content-container">
+          <FullPageLoadingScreen isVisible={showLoader} />
+          <div
+            className="app-content-container"
+            style={{
+              opacity: showLoader ? 0 : 1,
+              visibility: showLoader ? "hidden" : "visible",
+              transition: "opacity 0.2s ease-in-out",
+            }}
+          >
             <Outlet />
           </div>
         </Frame>
