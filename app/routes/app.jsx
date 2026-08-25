@@ -126,13 +126,13 @@ export default function App() {
   const navigation = useNavigation();
   const location = useLocation();
 
-  const [isPageSwitching, setIsPageSwitching] = useState(false);
+  const [isPageSwitching, setIsPageSwitching] = useState(true);
 
   useEffect(() => {
     setIsPageSwitching(true);
     const timer = setTimeout(() => {
       setIsPageSwitching(false);
-    }, 1500);
+    }, 2000);
     return () => clearTimeout(timer);
   }, [location.pathname, location.search]);
 
