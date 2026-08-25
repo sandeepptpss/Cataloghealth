@@ -16,6 +16,7 @@ import {
   Select,
   Checkbox,
   Banner,
+  Box,
 } from "@shopify/polaris";
 import { PlusIcon, DeleteIcon, EditIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server.js";
