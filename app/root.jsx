@@ -67,10 +67,7 @@ export default function App() {
               }
 
               html {
-                /* Reserve the scrollbar track up front so content that grows past the
-                   viewport after hydration does not shift sideways. */
-                scrollbar-gutter: stable;
-                overflow-y: scroll;
+                overflow-y: auto;
               }
 
               html, body, #app {
