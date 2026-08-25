@@ -190,14 +190,44 @@ export default function ProductHealthDetail() {
     >
       {issue.severity}
     </Badge>,
-    <BlockStack key={`title-${issue.id}`} gap="100">
-      <Text variant="bodyMd" fontWeight="bold">
-        {issue.title}
-      </Text>
-      <Text variant="bodySm" tone="subdued">
-        {issue.description}
-      </Text>
-    </BlockStack>,
+    (() => {
+      const rawTitle = issue.title || "";
+      const cleanTitle = rawTitle.includes('"')
+        ? rawTitle.replace(/"[^"]+"/g, "").replace(/\s+/g, " ").trim()
+        : rawTitle;
+
+      const fieldParts = issue.fieldName && issue.fieldName.includes(".")
+        ? issue.fieldName.split(".")
+        : null;
+
+      return (
+        <div key={`title-${issue.id}`} style={{ wordBreak: "break-word", whiteSpace: "normal" }}>
+          <BlockStack gap="100">
+            <Text variant="bodyMd" fontWeight="bold" as="span">
+              {cleanTitle || rawTitle}
+            </Text>
+            {fieldParts ? (
+              <InlineStack gap="100" blockAlign="center">
+                <Badge tone="subdued" size="small">
+                  {`Metafield: ${fieldParts[0]} › ${fieldParts.slice(1).join(".")}`}
+                </Badge>
+              </InlineStack>
+            ) : issue.fieldName ? (
+              <InlineStack gap="100" blockAlign="center">
+                <Badge tone="subdued" size="small">
+                  {`Field: ${issue.fieldName}`}
+                </Badge>
+              </InlineStack>
+            ) : null}
+            {issue.description && (
+              <Text variant="bodySm" tone="subdued">
+                {issue.description}
+              </Text>
+            )}
+          </BlockStack>
+        </div>
+      );
+    })(),
     <Badge
       key={`stat-${issue.id}`}
       tone={

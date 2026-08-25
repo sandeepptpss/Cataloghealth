@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLoaderData, useSubmit, useNavigation } from "react-router";
+import { useLoaderData, useSubmit, useNavigation, Link } from "react-router";
 import {
   Page,
   Layout,
@@ -264,9 +264,9 @@ export default function ValidationRules() {
                 <p>{upgradeMessages.customRules}</p>
                 <p>{upgradeMessages.requiredMetafields}</p>
                 <p>
-                  <a href="/app/plans" style={{ fontWeight: "bold" }}>
+                  <Link to="/app/plans" style={{ fontWeight: "bold" }}>
                     Upgrade your subscription plan to enable custom audit rules.
-                  </a>
+                  </Link>
                 </p>
               </Banner>
             )}
@@ -368,10 +368,11 @@ export default function ValidationRules() {
               autoComplete="off"
             />
             <TextField
-              label="Required Metafields (comma-separated namespace.key)"
+              label="Required Metafields (comma-separated namespace.key or namespace.key=DefaultValue)"
               value={requiredMetafields}
               onChange={setRequiredMetafields}
-              placeholder="e.g. global.gtin, specs.warranty"
+              placeholder="e.g. custom.testing_validation, custom.material=Organic Cotton, global.gtin"
+              helpText="Specify namespace.key or namespace.key=Value. If no custom value is specified, smart context defaults (e.g. Verified & Audited, Date, etc.) are applied automatically on Auto-Fix."
               autoComplete="off"
             />
             <Text variant="headingSm" as="h4">

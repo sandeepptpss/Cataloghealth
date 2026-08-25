@@ -227,7 +227,7 @@ export default function PricingPlans() {
       features: [
         "Audit up to 15,000 products",
         "Real-time Webhook Instant Scans",
-        "Required Metafield & Barcode Audit",
+        "Required Metafield Audit with Smart Defaults",
         "Custom Validation Rule Builder",
         "Instant Critical Email Alerts",
         "Priority Support (4h SLA)",
@@ -243,7 +243,7 @@ export default function PricingPlans() {
       description: "Auto-fix safety layer, multi-location inventory & VIP dedicated support.",
       features: [
         "Unlimited Product Audits",
-        "Auto-Fix Resolution Engine",
+        "Smart & Custom Metafield Auto-Fix Engine",
         "Multi-Location Catalog Sync",
         "Unlimited Webhook & On-Demand Scans",
         "Custom Dedicated Rule Engineering",

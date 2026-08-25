@@ -88,7 +88,11 @@ export function validateProductData({
       if (rule.requiredMetafields && planConfig.requiredMetafields) {
         rule.requiredMetafields.split(",").forEach((mf) => {
           const trimmed = mf.trim();
-          if (trimmed) requiredMetafields.add(trimmed);
+          if (trimmed) {
+            const [fieldKey] = trimmed.split("=");
+            const cleanKey = fieldKey.trim();
+            if (cleanKey) requiredMetafields.add(cleanKey);
+          }
         });
       }
     }

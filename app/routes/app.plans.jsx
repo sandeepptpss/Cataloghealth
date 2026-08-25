@@ -1,3 +1,4 @@
+/* global process */
 import { useState } from "react";
 import { Form, useLoaderData, useActionData, useNavigation } from "react-router";
 import {
@@ -13,7 +14,7 @@ import {
   Banner,
   Grid,
 } from "@shopify/polaris";
-import { calculateYearlyPricing, PLAN_CONFIG } from "../services/planConfig.js";
+import { calculateYearlyPricing } from "../services/planConfig.js";
 
 export const loader = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
@@ -144,7 +145,7 @@ export default function Plans() {
       features: [
         "Audit up to 15,000 products",
         "Real-time Webhook Instant Scans",
-        "Required Metafield & Barcode Audit",
+        "Required Metafield Audit with Smart Defaults",
         "Custom Validation Rule Builder",
         "Instant Critical Email Alerts",
         "Priority Support (4h SLA)",
@@ -162,7 +163,7 @@ export default function Plans() {
       description: "Full automation, auto-fix engine & VIP SLA.",
       features: [
         "Unlimited Product Audits",
-        "Auto-Fix Resolution Engine",
+        "Smart & Custom Metafield Auto-Fix Engine",
         "Multi-Location Catalog Sync",
         "Unlimited Webhook & On-Demand Scans",
         "Custom Dedicated Rule Engineering",
@@ -186,14 +187,14 @@ export default function Plans() {
         { feature: "Missing SKU & Zero-Price Detection", free: "✓", growth: "✓", pro: "✓", enterprise: "✓" },
         { feature: "Missing Image & Variant Checks", free: "Basic", growth: "✓", pro: "✓", enterprise: "✓" },
         { feature: "Duplicate SKU Detection Engine", free: "-", growth: "✓", pro: "✓", enterprise: "✓" },
-        { feature: "Required Metafield & Barcode Audit", free: "-", growth: "-", pro: "✓", enterprise: "✓" },
+        { feature: "Required Metafield Audit with Smart Defaults", free: "-", growth: "-", pro: "✓", enterprise: "✓" },
         { feature: "Custom Rule Builder Engine", free: "-", growth: "-", pro: "✓", enterprise: "✓" },
       ],
     },
     {
       category: "Automation & Resolution",
       rows: [
-        { feature: "Auto-Fix Resolution Engine", free: "-", growth: "-", pro: "-", enterprise: "✓" },
+        { feature: "Smart & Custom Metafield Auto-Fix Engine", free: "-", growth: "-", pro: "-", enterprise: "✓" },
         { feature: "Multi-Location Inventory Sync", free: "-", growth: "-", pro: "-", enterprise: "✓" },
         { feature: "Instant Email Alert Dispatch", free: "-", growth: "✓", pro: "✓", enterprise: "✓" },
       ],

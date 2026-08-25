@@ -5,6 +5,7 @@ import {
   useNavigation,
   useSearchParams,
   useNavigate,
+  Link,
 } from "react-router";
 import {
   Page,
@@ -26,6 +27,7 @@ import {
   Pagination,
   Select,
   Spinner,
+  Checkbox,
 } from "@shopify/polaris";
 import {
   CheckCircleIcon,
@@ -36,6 +38,7 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   MagicIcon,
+  ExportIcon,
 } from "@shopify/polaris-icons";
 import { useCallback, useEffect, useState } from "react";
 import { authenticate } from "../shopify.server.js";
@@ -188,6 +191,30 @@ export const action = async ({ request }) => {
       return { success: true, message: res.message };
     } catch (err) {
       return { success: false, error: err.message };
+    }
+  }
+
+  if (actionType === "BULK_AUTO_FIX") {
+    const issueIdsRaw = formData.get("issueIds");
+    if (!issueIdsRaw) return { success: false, error: "No issues selected for bulk fix." };
+    try {
+      const issueIds = JSON.parse(issueIdsRaw);
+      let successCount = 0;
+      let failCount = 0;
+      for (const issueId of issueIds) {
+        try {
+          await autoFixIssue(admin, store.id, issueId);
+          successCount++;
+        } catch {
+          failCount++;
+        }
+      }
+      return {
+        success: true,
+        message: `Bulk Auto-Fix completed: ${successCount} issue(s) successfully repaired${failCount > 0 ? `, ${failCount} failed` : ""}.`,
+      };
+    } catch (err) {
+      return { success: false, error: err.message || "Failed to process bulk auto-fix." };
     }
   }
 
@@ -352,6 +379,60 @@ export default function Dashboard() {
     submit({ actionType: "AUTO_FIX_ISSUE", issueId }, { method: "post" });
   };
 
+  const [selectedIssueIds, setSelectedIssueIds] = useState([]);
+
+  const handleToggleSelect = (issueId, checked) => {
+    if (checked) {
+      setSelectedIssueIds((prev) => [...prev, issueId]);
+    } else {
+      setSelectedIssueIds((prev) => prev.filter((id) => id !== issueId));
+    }
+  };
+
+  const handleToggleSelectAll = (checked) => {
+    if (checked) {
+      setSelectedIssueIds(issues.map((i) => i.id));
+    } else {
+      setSelectedIssueIds([]);
+    }
+  };
+
+  const handleBulkAutoFix = () => {
+    if (selectedIssueIds.length === 0) return;
+    submit(
+      { actionType: "BULK_AUTO_FIX", issueIds: JSON.stringify(selectedIssueIds) },
+      { method: "post" }
+    );
+    setSelectedIssueIds([]);
+  };
+
+  const handleExportCSV = (exportItems) => {
+    const itemsToExport = exportItems || issues;
+    if (!itemsToExport || itemsToExport.length === 0) return;
+
+    const headers = ["Issue ID", "Severity", "Title", "Field Name", "Product Title", "Variant SKU", "Status", "Created At"];
+    const rows = itemsToExport.map((i) => [
+      `"${i.id}"`,
+      `"${i.severity}"`,
+      `"${(i.title || "").replace(/"/g, '""')}"`,
+      `"${(i.fieldName || "").replace(/"/g, '""')}"`,
+      `"${(i.product?.title || "").replace(/"/g, '""')}"`,
+      `"${(i.variant?.sku || "").replace(/"/g, '""')}"`,
+      `"${i.status}"`,
+      `"${new Date(i.createdAt).toISOString()}"`,
+    ]);
+
+    const csvData = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csvData], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `cataloghealth_audit_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleIgnoreIssue = (issueId) => {
     submit({ actionType: "IGNORE_ISSUE", issueId }, { method: "post" });
   };
@@ -386,6 +467,14 @@ export default function Dashboard() {
   const scanRunning = queue.PENDING > 0 || queue.PROCESSING > 0;
 
   const issueRows = issues.map((issue) => [
+    <div key={`chk-${issue.id}`} style={{ display: "flex", alignItems: "center" }}>
+      <Checkbox
+        labelHidden
+        label={`Select issue ${issue.id}`}
+        checked={selectedIssueIds.includes(issue.id)}
+        onChange={(checked) => handleToggleSelect(issue.id, checked)}
+      />
+    </div>,
     <Box key={`sev-${issue.id}`}>
       <Badge
         tone={
@@ -399,26 +488,50 @@ export default function Dashboard() {
         {issue.severity}
       </Badge>
     </Box>,
-    <BlockStack key={`title-${issue.id}`} gap="050">
-      <Text variant="bodyMd" fontWeight="bold" as="span">
-        {issue.title}
-      </Text>
-      {issue.fieldName && (
-        <Text variant="bodyXs" tone="subdued" as="span">
-          Field: <code style={{ background: "#f1f5f9", padding: "1px 4px", borderRadius: "3px", fontSize: "11px" }}>{issue.fieldName}</code>
+    (() => {
+      const rawTitle = issue.title || "";
+      const cleanTitle = rawTitle.includes('"')
+        ? rawTitle.replace(/"[^"]+"/g, "").replace(/\s+/g, " ").trim()
+        : rawTitle;
+
+      const fieldParts = issue.fieldName && issue.fieldName.includes(".")
+        ? issue.fieldName.split(".")
+        : null;
+
+      return (
+        <div key={`title-${issue.id}`} style={{ wordBreak: "break-word", whiteSpace: "normal" }}>
+          <BlockStack gap="100">
+            <Text variant="bodyMd" fontWeight="bold" as="span">
+              {cleanTitle || rawTitle}
+            </Text>
+            {fieldParts ? (
+              <InlineStack gap="100" blockAlign="center">
+                <Badge tone="subdued" size="small">
+                  {`Metafield: ${fieldParts[0]} › ${fieldParts.slice(1).join(".")}`}
+                </Badge>
+              </InlineStack>
+            ) : issue.fieldName ? (
+              <InlineStack gap="100" blockAlign="center">
+                <Badge tone="subdued" size="small">
+                  {`Field: ${issue.fieldName}`}
+                </Badge>
+              </InlineStack>
+            ) : null}
+          </BlockStack>
+        </div>
+      );
+    })(),
+    <div key={`prod-${issue.id}`} style={{ wordBreak: "break-word", whiteSpace: "normal" }}>
+      <Button
+        variant="plain"
+        onClick={() => navigate(`/app/product/${issue.productId}`)}
+        accessibilityLabel={`View product details for ${issue.product?.title || "Product"}`}
+      >
+        <Text variant="bodyMd" fontWeight="bold" as="span">
+          {issue.product?.title || "N/A"}
         </Text>
-      )}
-    </BlockStack>,
-    <Button
-      key={`prod-${issue.id}`}
-      variant="plain"
-      onClick={() => navigate(`/app/product/${issue.productId}`)}
-      accessibilityLabel={`View product details for ${issue.product?.title || "Product"}`}
-    >
-      <Text variant="bodyMd" fontWeight="bold" as="span">
-        {issue.product?.title || "N/A"}
-      </Text>
-    </Button>,
+      </Button>
+    </div>,
     <Badge
       key={`stat-${issue.id}`}
       tone={
@@ -488,9 +601,9 @@ export default function Dashboard() {
           <Banner tone="warning" title="Action not completed">
             <p>{actionData.error}</p>
             <p>
-              <a href="/app/plans" style={{ fontWeight: "bold" }}>
+              <Link to="/app/plans" style={{ fontWeight: "bold" }}>
                 Review subscription plans
-              </a>
+              </Link>
             </p>
           </Banner>
         )}
@@ -875,6 +988,13 @@ export default function Dashboard() {
                         >
                           Warnings ({warningIssuesCount})
                         </Button>
+                        <Button
+                          size="micro"
+                          icon={ExportIcon}
+                          onClick={() => handleExportCSV(issues)}
+                        >
+                          Export CSV Report
+                        </Button>
                       </InlineStack>
 
                       {(searchInput || tabId !== "all") && (
@@ -915,6 +1035,45 @@ export default function Dashboard() {
                   </InlineStack>
                 )}
 
+                {selectedIssueIds.length > 0 && (
+                  <Box padding="300" background="bg-surface-selected" borderRadius="200">
+                    <InlineStack align="space-between" blockAlign="center">
+                      <Text variant="bodySm" fontWeight="bold">
+                        {selectedIssueIds.length} issue(s) selected
+                      </Text>
+                      <InlineStack gap="200" blockAlign="center">
+                        {planConfig.autoFix && (
+                          <Button
+                            size="micro"
+                            variant="primary"
+                            icon={MagicIcon}
+                            loading={isLoading}
+                            onClick={handleBulkAutoFix}
+                          >
+                            Bulk Auto-Fix ({selectedIssueIds.length})
+                          </Button>
+                        )}
+                        <Button
+                          size="micro"
+                          icon={ExportIcon}
+                          onClick={() =>
+                            handleExportCSV(issues.filter((i) => selectedIssueIds.includes(i.id)))
+                          }
+                        >
+                          Export Selected CSV
+                        </Button>
+                        <Button
+                          size="micro"
+                          variant="tertiary"
+                          onClick={() => setSelectedIssueIds([])}
+                        >
+                          Deselect All
+                        </Button>
+                      </InlineStack>
+                    </InlineStack>
+                  </Box>
+                )}
+
                 {issues.length === 0 ? (
                   <Box padding="800">
                     <BlockStack align="center" inlineAlign="center" gap="200">
@@ -928,8 +1087,21 @@ export default function Dashboard() {
                 ) : (
                   <BlockStack gap="400">
                     <DataTable
-                      columnContentTypes={["text", "text", "text", "text", "text"]}
-                      headings={["Severity", "Issue Title", "Product", "Status", "Actions"]}
+                      columnContentTypes={["text", "text", "text", "text", "text", "text"]}
+                      headings={[
+                        <Checkbox
+                          key="select-all"
+                          labelHidden
+                          label="Select all issues on page"
+                          checked={issues.length > 0 && selectedIssueIds.length === issues.length}
+                          onChange={handleToggleSelectAll}
+                        />,
+                        "Severity",
+                        "Issue Title",
+                        "Product",
+                        "Status",
+                        "Actions",
+                      ]}
                       rows={issueRows}
                     />
                     <Box paddingBlockStart="300" paddingBlockEnd="100">

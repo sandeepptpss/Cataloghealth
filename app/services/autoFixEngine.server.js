@@ -275,7 +275,32 @@ export async function autoFixIssue(admin, storeId, issueId) {
     const parts = rawField.split(".");
     const namespace = parts.length > 1 ? parts[0] : "custom";
     const key = parts.length > 1 ? parts.slice(1).join("_") : parts[0] || "audit_status";
-    const defaultValue = "Verified & Audited";
+
+    // Check if any active validation rule has a configured default value (e.g. namespace.key=CustomValue)
+    let configuredDefault = null;
+    try {
+      const activeRules = await prisma.validationRule.findMany({
+        where: { storeId, isEnabled: true, requiredMetafields: { contains: rawField } },
+      });
+
+      for (const rule of activeRules) {
+        if (rule.requiredMetafields) {
+          const items = rule.requiredMetafields.split(",");
+          for (const item of items) {
+            const [fKey, ...valParts] = item.trim().split("=");
+            if (fKey && fKey.trim().toLowerCase() === rawField.toLowerCase() && valParts.length > 0) {
+              configuredDefault = valParts.join("=").trim();
+              break;
+            }
+          }
+        }
+        if (configuredDefault) break;
+      }
+    } catch {
+      // Fallback to smart default if DB query fails
+    }
+
+    const defaultValue = getSmartMetafieldValue(rawField, key, namespace, product, configuredDefault);
 
     const res = await graphqlWithRetry(admin, METAFIELDS_SET_MUTATION, {
       variables: {
@@ -309,3 +334,102 @@ export async function autoFixIssue(admin, storeId, issueId) {
 
   return { success: true, message: fixMessage };
 }
+
+/**
+ * Smart default value generator for Shopify Metafields based on key name, namespace, and product context.
+ */
+export function getSmartMetafieldValue(fieldName, key, namespace, product, customDefault = null) {
+  if (customDefault && customDefault.trim()) {
+    return customDefault.trim();
+  }
+
+  const k = (key || "").toLowerCase();
+  const ns = (namespace || "").toLowerCase();
+
+  // 1. Audit / Compliance / Testing / Validation
+  if (
+    k.includes("testing") ||
+    k.includes("validation") ||
+    k.includes("audit") ||
+    k.includes("compliance") ||
+    k.includes("verified") ||
+    k.includes("certif") ||
+    k.includes("approval") ||
+    k.includes("qc")
+  ) {
+    return "Verified & Audited";
+  }
+
+  // 2. Dates / Timestamps
+  if (
+    k.includes("date") ||
+    k.includes("time") ||
+    k.includes("created") ||
+    k.includes("updated") ||
+    k.includes("expiry")
+  ) {
+    return new Date().toISOString().split("T")[0];
+  }
+
+  // 3. Material / Composition / Fabric
+  if (
+    k.includes("material") ||
+    k.includes("fabric") ||
+    k.includes("composition") ||
+    k.includes("ingredient")
+  ) {
+    return "Standard Grade Material";
+  }
+
+  // 4. Care / Instructions
+  if (
+    k.includes("care") ||
+    k.includes("instruction") ||
+    k.includes("wash") ||
+    k.includes("cleaning")
+  ) {
+    return "Follow standard manufacturer care guidelines.";
+  }
+
+  // 5. Colors / Shades
+  if (k.includes("color") || k.includes("colour") || k.includes("shade")) {
+    return "Standard";
+  }
+
+  // 6. Origin / Location / Country
+  if (k.includes("origin") || k.includes("country") || k.includes("made_in")) {
+    return "Global Standards Compliant";
+  }
+
+  // 7. Boolean / Flags
+  if (
+    k.startsWith("is_") ||
+    k.startsWith("has_") ||
+    k.includes("boolean") ||
+    k.includes("flag") ||
+    k.includes("active")
+  ) {
+    return "true";
+  }
+
+  // 8. Warranty / Guarantee
+  if (k.includes("warranty") || k.includes("guarantee")) {
+    return "1 Year Standard Warranty";
+  }
+
+  // 9. Standard Identifiers (gtin, mpn, upc, isbn, model)
+  if (
+    k.includes("gtin") ||
+    k.includes("mpn") ||
+    k.includes("upc") ||
+    k.includes("isbn") ||
+    k.includes("model")
+  ) {
+    const handleClean = (product?.handle || "PROD").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    return `${handleClean}-${Math.floor(100000 + Math.random() * 900000)}`;
+  }
+
+  // Default fallback
+  return "Verified & Audited";
+}
+

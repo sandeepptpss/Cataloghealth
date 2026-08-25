@@ -4,6 +4,7 @@ import {
   useSubmit,
   useNavigation,
   useRevalidator,
+  Link,
 } from "react-router";
 import { useEffect } from "react";
 import {
@@ -215,9 +216,9 @@ export default function CatalogScans() {
               <Banner tone="warning" title="On-demand scan not queued">
                 <p>{actionData.error}</p>
                 <p>
-                  <a href="/app/plans" style={{ fontWeight: "bold" }}>
+                  <Link to="/app/plans" style={{ fontWeight: "bold" }}>
                     Review subscription plans
-                  </a>
+                  </Link>
                 </p>
               </Banner>
             )}

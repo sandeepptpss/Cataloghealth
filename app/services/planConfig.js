@@ -125,10 +125,10 @@ export const FEATURE_REQUIREMENTS = {
   emailAlerts: { label: "Email alert notifications", minPlan: "growth" },
   webhookScan: { label: "Real-time webhook instant scans", minPlan: "pro" },
   customRules: { label: "Custom validation rule builder", minPlan: "pro" },
-  requiredMetafields: { label: "Required metafield audit", minPlan: "pro" },
+  requiredMetafields: { label: "Required metafield audit & smart default config", minPlan: "pro" },
   barcodeAudit: { label: "Barcode audit", minPlan: "pro" },
   instantCriticalAlerts: { label: "Instant critical email alerts", minPlan: "pro" },
-  autoFix: { label: "Auto-fix resolution engine", minPlan: "enterprise" },
+  autoFix: { label: "Smart & Custom Metafield Auto-Fix Resolution Engine", minPlan: "enterprise" },
   multiLocation: { label: "Multi-location catalog sync", minPlan: "enterprise" },
 };
 

@@ -23,13 +23,10 @@ import {
 } from "@shopify/polaris";
 import {
   CheckCircleIcon,
-  EmailIcon,
   SearchIcon,
   StoreIcon,
   CashDollarIcon,
   PersonIcon,
-  ClockIcon,
-  CheckIcon,
   XIcon,
 } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server.js";
@@ -569,60 +566,57 @@ export default function AdminDashboard() {
   return (
     <Page fullWidth>
       <BlockStack gap="500">
-        {/* Executive Hero Banner Header */}
+        {/* Executive Clean Polaris Header Banner */}
         <Box
-          padding="600"
-          borderRadius="400"
+          paddingBlock="500"
+          paddingInline="800"
+          borderRadius="300"
           style={{
-            background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
-            color: "#ffffff",
-            boxShadow: "0 10px 25px -5px rgba(15,23,42,0.3)",
-            border: "1px solid rgba(255,255,255,0.1)",
+            background: "#ffffff",
+            border: "1px solid #e1e3e5",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+            padding: "24px 32px",
           }}
         >
           <BlockStack gap="300">
-            <InlineStack align="space-between" blockAlign="center">
+            <InlineStack align="space-between" blockAlign="center" wrap>
               <InlineStack gap="200" blockAlign="center">
-                <Badge tone="success" size="large">
-                  SUPERADMIN CONTROL CENTER
-                </Badge>
-                <span style={{ fontSize: "12px", color: "#34d399", fontWeight: "600", letterSpacing: "0.5px" }}>
-                  ● LIVE PLATFORM MONITORED
-                </span>
+                <Badge tone="success">Superadmin Control Center</Badge>
+                <Badge tone="info">Live Monitored</Badge>
               </InlineStack>
-              <Text variant="bodySm" style={{ color: "#94a3b8" }}>
-                Admin Email: <strong style={{ color: "#ffffff" }}>{ADMIN_EMAIL}</strong>
+              <Text variant="bodySm" tone="subdued">
+                Admin: <strong style={{ color: "#202223" }}>{ADMIN_EMAIL}</strong>
               </Text>
             </InlineStack>
 
             <BlockStack gap="100">
-              <Text variant="heading2xl" as="h1" fontWeight="bold" style={{ color: "#ffffff" }}>
+              <Text variant="headingXl" as="h1" fontWeight="bold">
                 Master Platform Control Panel
               </Text>
-              <Text variant="bodyMd" style={{ color: "#cbd5e1" }}>
+              <Text variant="bodyMd" tone="subdued">
                 Manage merchant subscriptions, inspect store catalog audit metrics, and configure annual billing discounts in real-time.
               </Text>
             </BlockStack>
 
             <Divider />
 
-            <InlineStack gap="400" blockAlign="center" wrap>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#e2e8f0", fontSize: "13px" }}>
-                <span style={{ color: "#38bdf8", fontWeight: "bold" }}>●</span>
-                <span>Active Stores: <strong style={{ color: "#ffffff" }}>{localStores.length}</strong></span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#e2e8f0", fontSize: "13px" }}>
-                <span style={{ color: "#34d399", fontWeight: "bold" }}>●</span>
-                <span>Platform MRR: <strong style={{ color: "#ffffff" }}>${localEstimatedMRR.toFixed(2)}</strong></span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#e2e8f0", fontSize: "13px" }}>
-                <span style={{ color: "#fbbf24", fontWeight: "bold" }}>●</span>
-                <span>Avg. Catalog Health: <strong style={{ color: "#ffffff" }}>{avgPlatformHealth.toFixed(1)}%</strong></span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#e2e8f0", fontSize: "13px" }}>
-                <span style={{ color: "#a855f7", fontWeight: "bold" }}>●</span>
-                <span>Products Monitored: <strong style={{ color: "#ffffff" }}>{totalProductsMonitored.toLocaleString()}</strong></span>
-              </div>
+            <InlineStack gap="500" blockAlign="center" wrap>
+              <InlineStack gap="150" blockAlign="center">
+                <Text variant="bodySm" tone="subdued">Active Stores:</Text>
+                <Text variant="bodySm" fontWeight="bold">{localStores.length}</Text>
+              </InlineStack>
+              <InlineStack gap="150" blockAlign="center">
+                <Text variant="bodySm" tone="subdued">Platform MRR:</Text>
+                <Text variant="bodySm" fontWeight="bold">${localEstimatedMRR.toFixed(2)}</Text>
+              </InlineStack>
+              <InlineStack gap="150" blockAlign="center">
+                <Text variant="bodySm" tone="subdued">Avg. Catalog Health:</Text>
+                <Text variant="bodySm" fontWeight="bold">{avgPlatformHealth.toFixed(1)}%</Text>
+              </InlineStack>
+              <InlineStack gap="150" blockAlign="center">
+                <Text variant="bodySm" tone="subdued">Products Monitored:</Text>
+                <Text variant="bodySm" fontWeight="bold">{totalProductsMonitored.toLocaleString()}</Text>
+              </InlineStack>
             </InlineStack>
           </BlockStack>
         </Box>
@@ -903,7 +897,7 @@ export default function AdminDashboard() {
                             Quick Plan Upgrade / Downgrade Switcher
                           </Text>
                           <Text variant="bodySm" tone="subdued">
-                            Click any tier below to immediately update this merchant store's subscription plan:
+                            Click any tier below to immediately update this merchant store&apos;s subscription plan:
                           </Text>
                           <InlineStack gap="300" wrap>
                             {[
