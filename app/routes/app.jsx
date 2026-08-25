@@ -124,13 +124,13 @@ export default function App() {
   const navigation = useNavigation();
   const location = useLocation();
 
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     setIsLoading(true);
     const timer = setTimeout(() => {
       setIsLoading(false);
-    }, 700);
+    }, 800);
     return () => clearTimeout(timer);
   }, [location.pathname, location.search]);
 
