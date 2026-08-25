@@ -78,7 +78,7 @@ function UserFriendlyPageLoader({ isVisible }) {
     <div
       style={{
         position: "fixed",
-        top: "20px",
+        top: "24px",
         left: "50%",
         transform: "translateX(-50%)",
         zIndex: 999999,
@@ -90,14 +90,14 @@ function UserFriendlyPageLoader({ isVisible }) {
           background: "#ffffff",
           border: "1px solid #c9cccf",
           borderRadius: "24px",
-          padding: "8px 20px",
+          padding: "8px 22px",
           boxShadow: "0 8px 24px rgba(0, 0, 0, 0.12)",
           display: "flex",
           alignItems: "center",
           gap: "10px",
         }}
       >
-        <Spinner size="small" tone="primary" accessibilityLabel="Loading page" />
+        <Spinner size="small" tone="primary" />
         <Text variant="bodySm" fontWeight="bold">
           Loading page...
         </Text>
@@ -129,10 +129,6 @@ export default function App() {
       <PolarisProvider i18n={enTranslations} linkComponent={PolarisLink}>
         <Frame>
           {navMenu}
-          <div
-            className={`top-loading-bar${showLoader ? " is-active" : ""}`}
-            aria-hidden="true"
-          />
           <UserFriendlyPageLoader isVisible={showLoader} />
           <div
             className="app-content-container"

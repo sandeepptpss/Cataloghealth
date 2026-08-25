@@ -87,37 +87,13 @@ export default function App() {
                 outline: none;
               }
 
+              /* Hide Polaris Frame Skip accessibility text during loading/renders */
+              .Polaris-Frame__Skip {
+                display: none !important;
+              }
+
               .Polaris-Icon { display: inline-flex; width: 1.25rem; height: 1.25rem; flex-shrink: 0; vertical-align: middle; }
               .Polaris-Icon__Svg { width: 100%; height: 100%; fill: currentColor; display: block; }
-
-              /* Top progress bar */
-              .top-loading-bar {
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                height: 3px;
-                background: linear-gradient(90deg, #008060, #005bd3, #008060);
-                background-size: 200% 100%;
-                z-index: 99999;
-                opacity: 0;
-                transform: scaleY(0);
-                transform-origin: top;
-                pointer-events: none;
-                transition: opacity 180ms ease, transform 180ms ease;
-                animation: loadingBarAnim 1s infinite linear;
-                animation-play-state: paused;
-              }
-              .top-loading-bar.is-active {
-                opacity: 1;
-                transform: scaleY(1);
-                animation-play-state: running;
-              }
-
-              @keyframes loadingBarAnim {
-                0% { background-position: 200% 0; }
-                100% { background-position: -200% 0; }
-              }
 
               .app-content-container {
                 min-height: 100vh;
@@ -125,13 +101,6 @@ export default function App() {
                 max-width: 100%;
                 overflow-x: hidden;
                 box-sizing: border-box;
-              }
-
-              @media (prefers-reduced-motion: reduce) {
-                .top-loading-bar {
-                  transition: none;
-                  animation: none;
-                }
               }
             `,
           }}
