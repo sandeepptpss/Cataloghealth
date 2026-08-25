@@ -195,16 +195,16 @@ export function validateProductData({
       }
     }
 
-    // Barcode Check
+    // Barcode & Google Shopping GTIN Check
     if (checkBarcode) {
       if (!variant.barcode || !variant.barcode.trim()) {
         issues.push({
           issueType: "MISSING_BARCODE",
           fieldName: "barcode",
           variantId: variant.id,
-          severity: "INFO",
-          title: `Missing Barcode for Variant "${variant.title || 'Default'}"`,
-          description: `Variant does not have a barcode specified.`,
+          severity: "WARNING",
+          title: `Missing Barcode / GTIN for Variant "${variant.title || 'Default'}"`,
+          description: `Variant does not have a GTIN/barcode specified. Risks product disapproval on Google Shopping & Meta Ad feeds.`,
         });
       }
     }

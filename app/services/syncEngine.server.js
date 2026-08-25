@@ -288,30 +288,41 @@ export async function ensureStoreRecord(shopDomain) {
         {
           storeId: store.id,
           name: "Standard Catalog Audit Rule",
-          description: "Default rule for SKU, Price, Description, and Images validation",
+          description: "Default rule for SKU, Price, GTIN/Barcode, Description, and Images validation",
           priority: 10,
           isEnabled: true,
           scopeType: "ALL",
           minImages: 1,
           checkPrices: true,
           checkSku: true,
-          checkBarcode: false,
+          checkBarcode: true,
           checkDescription: true,
         },
         {
           storeId: store.id,
           name: "High Priority Image & Price Rule",
-          description: "Strict checks for product imagery and active non-zero pricing",
+          description: "Strict checks for product imagery, GTIN/Barcode, and active non-zero pricing",
           priority: 5,
           isEnabled: true,
           scopeType: "ALL",
           minImages: 1,
           checkPrices: true,
           checkSku: true,
-          checkBarcode: false,
+          checkBarcode: true,
           checkDescription: true,
         },
       ],
+    });
+  } else {
+    // Ensure GTIN/Barcode scanning is enabled on existing default rules
+    await prisma.validationRule.updateMany({
+      where: {
+        storeId: store.id,
+        checkBarcode: false,
+      },
+      data: {
+        checkBarcode: true,
+      },
     });
   }
 

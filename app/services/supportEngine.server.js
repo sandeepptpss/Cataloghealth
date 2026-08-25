@@ -247,7 +247,7 @@ export async function addAdminReply({ ticketId, body, authorEmail }) {
             <p style="margin: 0; font-weight: bold; color: #008060;">Support Reply:</p>
             <p style="white-space: pre-wrap; margin-top: 8px;">${text}</p>
           </div>
-          <p>You can also log in to your CatalogHealth Shopify app dashboard to view the full message history or reply directly.</p>
+          <p>You can also log in to your Catalog Health Shopify app dashboard to view the full message history or reply directly.</p>
         </div>
       `,
       text: `Support Response\nSubject: Re: ${ticket.subject}\nFrom: ${senderEmail}\n\nMessage:\n${text}`,

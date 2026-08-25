@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "f0bd51eb15a156d9025c409dcd9ef801"
-name = "Cataloghealth"
+name = "Catalog Health Monitor"
 application_url = "https://example.com"
 embedded = true
 

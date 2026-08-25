@@ -3,9 +3,18 @@ import {
   ApiVersion,
   AppDistribution,
   shopifyApp,
+  BillingInterval,
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server.js";
+
+export const MONTHLY_GROWTH = "Growth Plan";
+export const MONTHLY_PRO = "Pro Advanced";
+export const MONTHLY_ENTERPRISE = "Plus Enterprise";
+
+export const YEARLY_GROWTH = "Growth Plan (Annual)";
+export const YEARLY_PRO = "Pro Advanced (Annual)";
+export const YEARLY_ENTERPRISE = "Plus Enterprise (Annual)";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY || "dummy_api_key",
@@ -25,6 +34,62 @@ const shopify = shopifyApp({
   distribution: AppDistribution.AppStore,
   future: {
     expiringOfflineAccessTokens: true,
+  },
+  billing: {
+    [MONTHLY_GROWTH]: {
+      lineItems: [
+        {
+          amount: 9.99,
+          currencyCode: "USD",
+          interval: BillingInterval.Every30Days,
+        },
+      ],
+    },
+    [MONTHLY_PRO]: {
+      lineItems: [
+        {
+          amount: 24.99,
+          currencyCode: "USD",
+          interval: BillingInterval.Every30Days,
+        },
+      ],
+    },
+    [MONTHLY_ENTERPRISE]: {
+      lineItems: [
+        {
+          amount: 49.99,
+          currencyCode: "USD",
+          interval: BillingInterval.Every30Days,
+        },
+      ],
+    },
+    [YEARLY_GROWTH]: {
+      lineItems: [
+        {
+          amount: 95.90,
+          currencyCode: "USD",
+          interval: BillingInterval.Annual,
+        },
+      ],
+    },
+    [YEARLY_PRO]: {
+      lineItems: [
+        {
+          amount: 239.90,
+          currencyCode: "USD",
+          interval: BillingInterval.Annual,
+        },
+      ],
+    },
+    [YEARLY_ENTERPRISE]: {
+      lineItems: [
+        {
+          amount: 479.90,
+          currencyCode: "USD",
+          interval: BillingInterval.Annual,
+        },
+      ],
+    },
   },
   hooks: {
     // Spec #3: on install, create the store record and queue the initial sync

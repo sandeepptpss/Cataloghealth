@@ -503,9 +503,9 @@ export default function AdminDashboard() {
             labelHidden
             options={[
               { label: "Starter Free ($0)", value: "free" },
-              { label: "Growth Plan ($4.99)", value: "growth" },
-              { label: "Pro Advanced ($9.99)", value: "pro" },
-              { label: "Plus Enterprise ($19.99)", value: "enterprise" },
+              { label: "Growth Plan ($9.99)", value: "growth" },
+              { label: "Pro Advanced ($24.99)", value: "pro" },
+              { label: "Plus Enterprise ($49.99)", value: "enterprise" },
             ]}
             value={currentPlan}
             onChange={(val) => handleUpdateStorePlan(st.id, val)}
@@ -792,9 +792,9 @@ export default function AdminDashboard() {
                           options={[
                             { label: "All Subscription Plans", value: "all" },
                             { label: "Starter Free ($0)", value: "free" },
-                            { label: "Growth Plan ($4.99)", value: "growth" },
-                            { label: "Pro Advanced ($9.99)", value: "pro" },
-                            { label: "Plus Enterprise ($19.99)", value: "enterprise" },
+                            { label: "Growth Plan ($9.99)", value: "growth" },
+                            { label: "Pro Advanced ($24.99)", value: "pro" },
+                            { label: "Plus Enterprise ($49.99)", value: "enterprise" },
                           ]}
                           value={planFilter}
                           onChange={setPlanFilter}

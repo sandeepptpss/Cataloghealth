@@ -29,6 +29,7 @@ import {
   Select,
   Spinner,
   Checkbox,
+  Modal,
 } from "@shopify/polaris";
 import {
   CheckCircleIcon,
@@ -40,6 +41,7 @@ import {
   ChevronUpIcon,
   MagicIcon,
   ExportIcon,
+  LockIcon,
 } from "@shopify/polaris-icons";
 import { useCallback, useEffect, useState } from "react";
 import { authenticate } from "../shopify.server.js";
@@ -57,7 +59,7 @@ import { serializablePlanConfig } from "../services/planEngine.server.js";
 import { autoFixIssue } from "../services/autoFixEngine.server.js";
 
 const TABS = [
-  { id: "all", label: "Open", where: { status: "OPEN" } },
+  { id: "all", label: "All Open", where: { status: "OPEN" } },
   { id: "critical", label: "Critical", where: { status: "OPEN", severity: "CRITICAL" } },
   { id: "warning", label: "Warnings", where: { status: "OPEN", severity: "WARNING" } },
   { id: "info", label: "Info", where: { status: "OPEN", severity: "INFO" } },
@@ -330,6 +332,7 @@ export default function Dashboard() {
 
   const [searchInput, setSearchInput] = useState(query);
   const [showAlerts, setShowAlerts] = useState(false);
+  const [showAutoFixUpgradeModal, setShowAutoFixUpgradeModal] = useState(false);
 
   // Keep the box in step when the URL changes from elsewhere (back button).
   useEffect(() => {
@@ -432,7 +435,7 @@ export default function Dashboard() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `cataloghealth_audit_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute("download", `catalog_health_audit_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -462,13 +465,38 @@ export default function Dashboard() {
 
   const selectedTab = Math.max(0, TABS.findIndex((t) => t.id === tabId));
 
-  const getScoreColor = (score) => {
-    if (score >= 85) return "#108548";
-    if (score >= 60) return "#b86200";
-    return "#d72c0d";
+  const getScoreTheme = (score) => {
+    if (score >= 75) {
+      return {
+        bg: "linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)",
+        border: "1px solid #6EE7B7",
+        color: "#047857",
+        textTone: "success",
+        label: "Optimal Catalog Health",
+        barBg: "linear-gradient(90deg, #10B981 0%, #059669 100%)",
+      };
+    } else if (score >= 50) {
+      return {
+        bg: "linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%)",
+        border: "1px solid #A7F3D0",
+        color: "#065F46",
+        textTone: "success",
+        label: "Good Catalog Quality",
+        barBg: "linear-gradient(90deg, #34D399 0%, #059669 100%)",
+      };
+    } else {
+      return {
+        bg: "linear-gradient(135deg, #FEF2F2 0%, #FEE2E2 100%)",
+        border: "1px solid #FCA5A5",
+        color: "#B91C1C",
+        textTone: "critical",
+        label: "Action Needed",
+        barBg: "linear-gradient(90deg, #F87171 0%, #DC2626 100%)",
+      };
+    }
   };
 
-  const scoreColor = getScoreColor(store.healthScore);
+  const scoreTheme = getScoreTheme(store.healthScore);
   const scanRunning = queue.PENDING > 0 || queue.PROCESSING > 0;
 
   const issueRows = issues.map((issue) => [
@@ -550,15 +578,26 @@ export default function Dashboard() {
       {issue.status}
     </Badge>,
     <InlineStack key={`act-${issue.id}`} gap="200" blockAlign="center">
-      {issue.status === "OPEN" && planConfig.autoFix && (
-        <Button
-          size="micro"
-          variant="primary"
-          icon={MagicIcon}
-          onClick={() => handleAutoFix(issue.id)}
-        >
-          Auto-Fix
-        </Button>
+      {issue.status === "OPEN" && (
+        planConfig.autoFix ? (
+          <Button
+            size="micro"
+            variant="primary"
+            icon={MagicIcon}
+            onClick={() => handleAutoFix(issue.id)}
+          >
+            Auto-Fix
+          </Button>
+        ) : (
+          <Button
+            size="micro"
+            variant="secondary"
+            icon={LockIcon}
+            onClick={() => setShowAutoFixUpgradeModal(true)}
+          >
+            Auto-Fix 🔒
+          </Button>
+        )
       )}
       {issue.status === "OPEN" && (
         <Button
@@ -589,7 +628,7 @@ export default function Dashboard() {
   const totalPages = Math.max(1, Math.ceil(filteredCount / pageSize));
 
   return (
-    <Page title="Catalog Health Monitor" fullWidth>
+    <Page title="Dashboard" fullWidth>
       <BlockStack gap="500">
         <Card padding="500">
           <InlineStack align="space-between" blockAlign="center">
@@ -660,33 +699,134 @@ export default function Dashboard() {
           </Banner>
         )}
 
-        {criticalIssuesCount > 0 && (
-          <Box
-            padding="300"
-            borderRadius="200"
-            style={{
-              background: "#FEF2F2",
-              border: "1px solid #FECACA",
-              borderLeft: "4px solid #EF4444",
-            }}
-          >
-            <InlineStack align="space-between" blockAlign="center">
-              <InlineStack gap="200" blockAlign="center">
-                <Badge tone="critical">CRITICAL ALERT</Badge>
-                <Text variant="bodySm" fontWeight="bold">
-                  {criticalIssuesCount} critical catalog issue(s) detected affecting product availability.
-                </Text>
+        {openIssuesCount > 0 && (
+          <Card padding="0">
+            <div
+              style={{
+                background: criticalIssuesCount > 0
+                  ? "linear-gradient(135deg, #FFF1F2 0%, #FFE4E6 100%)"
+                  : "linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%)",
+                border: criticalIssuesCount > 0 ? "1px solid #FECDD3" : "1px solid #FDE68A",
+                borderRadius: "14px",
+                padding: "20px 24px",
+                boxShadow: criticalIssuesCount > 0
+                  ? "0 4px 20px rgba(225, 29, 72, 0.06)"
+                  : "0 4px 20px rgba(245, 158, 11, 0.06)",
+              }}
+            >
+              <InlineStack align="space-between" blockAlign="center" gap="400">
+                <InlineStack gap="400" blockAlign="center">
+                  <div
+                    style={{
+                      width: "40px",
+                      height: "40px",
+                      borderRadius: "10px",
+                      background: criticalIssuesCount > 0 ? "#FEE2E2" : "#FEF3C7",
+                      border: criticalIssuesCount > 0 ? "1px solid #FCA5A5" : "1px solid #FDE68A",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Icon
+                      source={AlertCircleIcon}
+                      tone={criticalIssuesCount > 0 ? "critical" : "warning"}
+                    />
+                  </div>
+
+                  <BlockStack gap="100">
+                    <InlineStack gap="200" blockAlign="center">
+                      <span
+                        style={{
+                          background: criticalIssuesCount > 0 ? "#BE123C" : "#B45309",
+                          color: "#FFFFFF",
+                          fontSize: "11px",
+                          fontWeight: "700",
+                          padding: "3px 10px",
+                          borderRadius: "20px",
+                          letterSpacing: "0.5px",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {criticalIssuesCount > 0 ? "Critical Revenue Risk" : "Estimated Revenue Impact"}
+                      </span>
+                      <Text variant="headingLg" as="h2" fontWeight="bold">
+                        <span style={{ color: criticalIssuesCount > 0 ? "#881337" : "#78350F" }}>
+                          ~${((criticalIssuesCount * 150) + (warningIssuesCount * 50)).toLocaleString()}/mo Sales at Risk
+                        </span>
+                      </Text>
+                    </InlineStack>
+                    <Text variant="bodyMd" tone="subdued">
+                      <strong style={{ color: "#111827" }}>{openIssuesCount} open catalog issue(s)</strong> ({criticalIssuesCount} critical, {warningIssuesCount} warnings) detected. Risking checkout drops & ad feed rejections.
+                    </Text>
+                  </BlockStack>
+                </InlineStack>
+
+                <InlineStack gap="200" blockAlign="center">
+                  {criticalIssuesCount > 0 && (
+                    <Button
+                      size="large"
+                      variant="primary"
+                      tone="critical"
+                      onClick={() => updateParams({ tab: "critical", page: 1 })}
+                    >
+                      View Critical Issues ({criticalIssuesCount})
+                    </Button>
+                  )}
+                  {(planConfig.id === "free" || planConfig.id === "growth") && (
+                    <Button
+                      variant="primary"
+                      size="large"
+                      onClick={() => navigate("/app/plans")}
+                    >
+                      Upgrade Protection
+                    </Button>
+                  )}
+                </InlineStack>
+              </InlineStack>
+            </div>
+          </Card>
+        )}
+
+        {store.healthScore >= 80 && (
+          <Card padding="400">
+            <InlineStack align="space-between" blockAlign="center" gap="400">
+              <InlineStack gap="300" blockAlign="center">
+                <div
+                  style={{
+                    fontSize: "20px",
+                    width: "38px",
+                    height: "38px",
+                    borderRadius: "10px",
+                    background: "#FEF3C7",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  ⭐
+                </div>
+                <BlockStack gap="050">
+                  <Text variant="bodyMd" fontWeight="bold">
+                    Catalog Health score is at {store.healthScore.toFixed(1)}%!
+                  </Text>
+                  <Text variant="bodyXs" tone="subdued">
+                    Enjoying Catalog Health Monitor? Support our app development with a 5-star rating on the Shopify App Store.
+                  </Text>
+                </BlockStack>
               </InlineStack>
               <Button
                 size="micro"
-                variant="primary"
-                tone="critical"
-                onClick={() => updateParams({ tab: "critical", page: 1 })}
+                variant="tertiary"
+                url="https://apps.shopify.com"
+                target="_blank"
               >
-                View Critical Issues
+                Leave 5-Star Rating ⭐
               </Button>
             </InlineStack>
-          </Box>
+          </Card>
         )}
 
         <Layout>
@@ -699,43 +839,51 @@ export default function Dashboard() {
                 <div
                   style={{
                     textAlign: "center",
-                    padding: "16px 20px",
+                    padding: "20px 24px",
                     borderRadius: "16px",
-                    background: store.healthScore >= 85 ? "#F0FDF4" : store.healthScore >= 60 ? "#FFFBEB" : "#FEF2F2",
-                    border: store.healthScore >= 85 ? "1px solid #BBF7D0" : store.healthScore >= 60 ? "1px solid #FDE68A" : "1px solid #FECACA",
-                    boxShadow: "0 2px 10px rgba(0,0,0,0.03)",
+                    background: scoreTheme.bg,
+                    border: scoreTheme.border,
+                    boxShadow: "0 4px 14px rgba(16, 185, 129, 0.08)",
                     width: "100%",
                   }}
                 >
                   <div
                     style={{
-                      fontSize: "48px",
+                      fontSize: "52px",
                       fontWeight: "900",
-                      letterSpacing: "-1px",
-                      color: scoreColor,
-                      lineHeight: "1.1",
+                      letterSpacing: "-1.5px",
+                      color: scoreTheme.color,
+                      lineHeight: "1.05",
                     }}
                   >
                     {store.healthScore.toFixed(1)}%
                   </div>
-                  <Text variant="bodySm" fontWeight="bold" tone={store.healthScore >= 85 ? "success" : store.healthScore >= 60 ? "caution" : "critical"}>
-                    {store.healthScore >= 85
-                      ? "Excellent Catalog Quality"
-                      : store.healthScore >= 60
-                        ? "Needs Attention"
-                        : "Critical Fixes Required"}
-                  </Text>
+                  <div style={{ marginTop: "6px" }}>
+                    <Text variant="bodyMd" fontWeight="bold" tone={scoreTheme.textTone}>
+                      {scoreTheme.label}
+                    </Text>
+                  </div>
                 </div>
-                <ProgressBar
-                  progress={store.healthScore}
-                  tone={
-                    store.healthScore >= 85
-                      ? "success"
-                      : store.healthScore >= 60
-                        ? "highlight"
-                        : "critical"
-                  }
-                />
+                <div
+                  style={{
+                    width: "100%",
+                    height: "10px",
+                    borderRadius: "5px",
+                    background: "#E5E7EB",
+                    overflow: "hidden",
+                    marginTop: "4px",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${Math.min(100, Math.max(0, store.healthScore))}%`,
+                      height: "100%",
+                      background: scoreTheme.barBg,
+                      borderRadius: "5px",
+                      transition: "width 0.5s ease-in-out",
+                    }}
+                  />
+                </div>
               </BlockStack>
             </Card>
           </Layout.Section>
@@ -798,10 +946,10 @@ export default function Dashboard() {
                       flex: 1,
                       textAlign: "center",
                       cursor: "pointer",
-                      backgroundColor: tabId === "critical" ? "#FEE2E2" : "#FEF2F2",
-                      border: tabId === "critical" ? "2px solid #EF4444" : "1.5px solid #FCA5A5",
+                      backgroundColor: tabId === "critical" ? "#FEF2F2" : "var(--p-color-bg-surface-secondary)",
+                      border: tabId === "critical" ? "2px solid #EF4444" : "1px solid var(--p-color-border-subdued)",
                       transition: "all 0.2s ease-in-out",
-                      boxShadow: tabId === "critical" ? "0 4px 12px rgba(239,68,68,0.2)" : "0 1px 3px rgba(0,0,0,0.03)",
+                      boxShadow: tabId === "critical" ? "0 4px 12px rgba(239,68,68,0.15)" : "0 1px 3px rgba(0,0,0,0.02)",
                     }}
                     title="Click to filter Critical Issues"
                   >
@@ -823,10 +971,10 @@ export default function Dashboard() {
                       flex: 1,
                       textAlign: "center",
                       cursor: "pointer",
-                      backgroundColor: tabId === "warning" ? "#FEF3C7" : "#FFFBEB",
-                      border: tabId === "warning" ? "2px solid #F59E0B" : "1.5px solid #FDE68A",
+                      backgroundColor: tabId === "warning" ? "#FFFBEB" : "var(--p-color-bg-surface-secondary)",
+                      border: tabId === "warning" ? "2px solid #F59E0B" : "1px solid var(--p-color-border-subdued)",
                       transition: "all 0.2s ease-in-out",
-                      boxShadow: tabId === "warning" ? "0 4px 12px rgba(245,158,11,0.2)" : "0 1px 3px rgba(0,0,0,0.03)",
+                      boxShadow: tabId === "warning" ? "0 4px 12px rgba(245,158,11,0.15)" : "0 1px 3px rgba(0,0,0,0.02)",
                     }}
                     title="Click to filter Warnings"
                   >
@@ -848,10 +996,10 @@ export default function Dashboard() {
                       flex: 1,
                       textAlign: "center",
                       cursor: "pointer",
-                      backgroundColor: tabId === "resolved" ? "#DCFCE7" : "#F0FDF4",
-                      border: tabId === "resolved" ? "2px solid #22C55E" : "1.5px solid #86EFAC",
+                      backgroundColor: tabId === "resolved" ? "#F0FDF4" : "var(--p-color-bg-surface-secondary)",
+                      border: tabId === "resolved" ? "2px solid #10B981" : "1px solid var(--p-color-border-subdued)",
                       transition: "all 0.2s ease-in-out",
-                      boxShadow: tabId === "resolved" ? "0 4px 12px rgba(34,197,94,0.2)" : "0 1px 3px rgba(0,0,0,0.03)",
+                      boxShadow: tabId === "resolved" ? "0 4px 12px rgba(16,185,129,0.15)" : "0 1px 3px rgba(0,0,0,0.02)",
                     }}
                     title="Click to filter Resolved Issues"
                   >
@@ -1168,6 +1316,36 @@ export default function Dashboard() {
           </Tabs>
         </Card>
       </BlockStack>
+
+      {/* Smart Auto-Fix Upsell Modal */}
+      <Modal
+        open={showAutoFixUpgradeModal}
+        onClose={() => setShowAutoFixUpgradeModal(false)}
+        title="Unlock 1-Click Smart Auto-Fix Engine"
+        primaryAction={{
+          content: "Upgrade to Plus Enterprise ($49.99/mo)",
+          onAction: () => navigate("/app/plans"),
+        }}
+        secondaryActions={[
+          {
+            content: "Close",
+            onAction: () => setShowAutoFixUpgradeModal(false),
+          },
+        ]}
+      >
+        <Modal.Section>
+          <BlockStack gap="300">
+            <Text variant="bodyMd">
+              Smart Auto-Fix automatically repairs missing SKUs, auto-generates dynamic product descriptions, fixes broken metafields, and updates zero prices in 1-Click.
+            </Text>
+            <Banner tone="info" title="Included in Plus Enterprise Tier">
+              <p>
+                Upgrade to the <strong>Plus Enterprise</strong> plan to enable Unlimited 1-Click Auto-Fixes, Multi-Location Catalog Sync, and 1-hour VIP SLA support. Includes 14-day free trial.
+              </p>
+            </Banner>
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
     </Page>
   );
 }
