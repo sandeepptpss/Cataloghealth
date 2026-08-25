@@ -389,9 +389,11 @@ export default function Plans() {
           {/* Pricing Cards Grid */}
           <Grid>
             {plans.map((plan) => {
-              const isCurrent = currentPlanId === plan.id;
-              const yearlyInfo = calculateYearlyPricing(plan.priceAmount, yearlyDiscountPercent);
               const isYearly = billingInterval === "yearly" && plan.priceAmount > 0;
+              const isCurrent =
+                currentPlanId === plan.id &&
+                (plan.id === "free" || currentBillingInterval === (isYearly ? "yearly" : "monthly"));
+              const yearlyInfo = calculateYearlyPricing(plan.priceAmount, yearlyDiscountPercent);
 
               return (
                 <Grid.Cell
