@@ -134,7 +134,16 @@ export default function App() {
             aria-hidden="true"
           />
           <UserFriendlyPageLoader isVisible={showLoader} />
-          <div className="app-content-container">
+          <div
+            className="app-content-container"
+            style={{
+              opacity: showLoader ? 0 : 1,
+              visibility: showLoader ? "hidden" : "visible",
+              transition: "opacity 0.2s ease-in-out",
+              minHeight: "100vh",
+              backgroundColor: "#f1f2f4",
+            }}
+          >
             <Outlet />
           </div>
         </Frame>
