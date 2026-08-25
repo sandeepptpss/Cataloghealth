@@ -39,8 +39,8 @@ export const PLAN_CONFIG = {
   growth: {
     id: "growth",
     name: "Growth Plan",
-    price: "$7.99",
-    priceAmount: 7.99,
+    price: "$4.99",
+    priceAmount: 4.99,
     maxProducts: 3000,
     maxProductsLabel: "3,000 products",
     manualScansPerWeek: 7,
@@ -59,8 +59,8 @@ export const PLAN_CONFIG = {
   pro: {
     id: "pro",
     name: "Pro Advanced",
-    price: "$19.99",
-    priceAmount: 19.99,
+    price: "$9.99",
+    priceAmount: 9.99,
     maxProducts: 15000,
     maxProductsLabel: "15,000 products",
     manualScansPerWeek: 30,
@@ -79,8 +79,8 @@ export const PLAN_CONFIG = {
   enterprise: {
     id: "enterprise",
     name: "Plus Enterprise",
-    price: "$39.99",
-    priceAmount: 39.99,
+    price: "$19.99",
+    priceAmount: 19.99,
     maxProducts: Infinity,
     maxProductsLabel: "Unlimited products",
     manualScansPerWeek: Infinity,

@@ -320,6 +320,18 @@ export default function Dashboard() {
     return () => clearTimeout(timer);
   }, [searchInput, query, searchParams, setSearchParams]);
 
+  // Auto-poll loader data every 2.5 seconds while catalog scan is running in background
+  useEffect(() => {
+    const isScanning = queue.PENDING > 0 || queue.PROCESSING > 0 || lastScan?.status === "IN_PROGRESS";
+    if (!isScanning) return;
+
+    const interval = setInterval(() => {
+      navigate(".", { replace: true, preventScrollReset: true });
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [queue.PENDING, queue.PROCESSING, lastScan?.status, navigate]);
+
   const updateParams = useCallback(
     (changes) => {
       const next = new URLSearchParams(searchParams);

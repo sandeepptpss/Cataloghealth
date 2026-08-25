@@ -17,14 +17,10 @@ import {
   Banner,
   Grid,
   Icon,
-  Collapsible,
 } from "@shopify/polaris";
 import {
   EmailIcon,
   ClockIcon,
-  QuestionCircleIcon,
-  ChevronDownIcon,
-  ChevronUpIcon,
 } from "@shopify/polaris-icons";
 
 export const CUSTOM_SUBJECT_OPTION = "Other / Custom Topic";
@@ -39,28 +35,17 @@ const PLAN_LABELS = {
 export const loader = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
   const { ensureStoreRecord } = await import("../services/syncEngine.server.js");
-  const { listStoreTickets, ticketSlaLabel } = await import("../services/supportEngine.server.js");
+  const { ticketSlaLabel } = await import("../services/supportEngine.server.js");
 
   const adminEmailEnv = process.env.ADMIN_EMAIL || "sandeepptpss@gmail.com";
-  const adminShopPrefix = process.env.ADMIN_STORE_NAME || "quickstart-749ac396";
 
   const { session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
 
-  const shopDomain = session.shop.toLowerCase();
-  const adminEmail = (store.adminEmail || "").toLowerCase();
-  const isAdmin =
-    shopDomain.includes(adminShopPrefix.toLowerCase()) ||
-    adminEmail === adminEmailEnv.toLowerCase();
-
-  const supportTickets = await listStoreTickets(store.id);
-
   return {
     store,
-    supportTickets,
     supportSla: ticketSlaLabel(store.plan),
     currentPlanId: store.plan || "free",
-    isAdmin,
     adminEmail: adminEmailEnv,
   };
 };
@@ -68,7 +53,7 @@ export const loader = async ({ request }) => {
 export const action = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
   const { ensureStoreRecord } = await import("../services/syncEngine.server.js");
-  const { createTicket, addMerchantReply, ticketSlaLabel } = await import("../services/supportEngine.server.js");
+  const { createTicket, ticketSlaLabel } = await import("../services/supportEngine.server.js");
 
   const { session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
@@ -90,7 +75,7 @@ export const action = async ({ request }) => {
       return {
         scope: "support",
         success: false,
-        error: "Please write a detailed message for your ticket.",
+        error: "Please write a detailed message for your query.",
       };
     }
 
@@ -109,55 +94,21 @@ export const action = async ({ request }) => {
         return {
           scope: "support",
           success: false,
-          error: result.error || "Failed to create support ticket.",
+          error: result.error || "Failed to send merchant query.",
         };
       }
 
-      const ticket = result.ticket;
       return {
         scope: "support",
         success: true,
-        savedId: ticket.id,
-        message: `Ticket #${ticket.id.slice(0, 8)} submitted successfully. SLA Target: ${ticketSlaLabel(ticket.planAtSubmission)}.`,
+        savedId: result.ticket.id,
+        message: `Your query notification has been sent to our support team (${process.env.ADMIN_EMAIL || "sandeepptpss@gmail.com"}). We will reply directly to your contact email (${emailToSave}). Target Response: ${ticketSlaLabel(store.plan)}.`,
       };
     } catch (err) {
       return {
         scope: "support",
         success: false,
-        error: err.message || "Failed to create support ticket.",
-      };
-    }
-  }
-
-  if (actionType === "REPLY_TICKET") {
-    const ticketId = (formData.get("ticketId") || "").toString().trim();
-    const message = (formData.get("message") || "").toString().trim();
-
-    if (!message) {
-      return {
-        scope: "support",
-        success: false,
-        error: "Reply message cannot be empty.",
-      };
-    }
-
-    try {
-      await addMerchantReply({
-        ticketId,
-        storeId: store.id,
-        body: message,
-      });
-
-      return {
-        scope: "support",
-        success: true,
-        message: "Your reply has been added to the conversation history.",
-      };
-    } catch (err) {
-      return {
-        scope: "support",
-        success: false,
-        error: err.message || "Failed to send reply.",
+        error: err.message || "Failed to send merchant query.",
       };
     }
   }
@@ -166,7 +117,7 @@ export const action = async ({ request }) => {
 };
 
 export default function HelpAndSupport() {
-  const { store, supportTickets, supportSla, currentPlanId, isAdmin, adminEmail } = useLoaderData();
+  const { store, supportSla, currentPlanId, adminEmail } = useLoaderData();
   const actionData = useActionData();
   const navigation = useNavigation();
 
@@ -178,7 +129,6 @@ export default function HelpAndSupport() {
     store.adminEmail || `merchant@${store.shopDomain}`
   );
   const [message, setMessage] = useState("");
-  const [replyMessages, setReplyMessages] = useState({});
 
   const supportFormRef = useRef(null);
 
@@ -207,42 +157,13 @@ export default function HelpAndSupport() {
     { label: CUSTOM_SUBJECT_OPTION, value: CUSTOM_SUBJECT_OPTION },
   ];
 
-  const [openFaq, setOpenFaq] = useState(null);
-
-  const toggleFaq = (index) => {
-    setOpenFaq(openFaq === index ? null : index);
-  };
-
-  const faqItems = [
-    {
-      question: "How is the Store Catalog Health Score calculated?",
-      answer:
-        "Your Health Score evaluates all active products against enabled validation rules. Missing images, missing SKUs, zero prices, and missing required metafields subtract from the total score. Resolving or ignoring valid exceptions restores your overall percentage.",
-    },
-    {
-      question: "How does the Auto-Fix Engine work?",
-      answer:
-        "Available on Plus Enterprise plans, the Auto-Fix Engine automatically updates products with standard fallback descriptions, auto-generated unique SKUs, or inventory sync corrections directly via Shopify API.",
-    },
-    {
-      question: "How often do automated catalog scans run?",
-      answer:
-        "Automated daily scans run every 24 hours on Growth, Pro, and Enterprise plans. On Pro and Enterprise, real-time webhooks also trigger instant scans whenever products are created or modified.",
-    },
-    {
-      question: "Can I customize validation rules for specific collections or vendors?",
-      answer:
-        "Yes! Navigate to the Validation Rules Engine page to create custom rules scoped specifically to particular Collections, Vendors, or Product Types.",
-    },
-  ];
-
   return (
     <Page
       fullWidth
-      title="Merchant Support"
-      subtitle="Contact support for audit rule setup, catalog diagnostics, or technical assistance"
+      title="Merchant Support & Chat Inquiry"
+      subtitle="Send a direct query notification to support. All responses are sent and managed via email."
       primaryAction={{
-        content: "New Ticket",
+        content: "Send Query",
         onClick: handleScrollToForm,
       }}
     >
@@ -254,20 +175,8 @@ export default function HelpAndSupport() {
         )}
 
         {supportSavedId && (
-          <Banner tone="success" title="Ticket Submitted">
+          <Banner tone="success" title="Query Sent via Email Notification">
             <p>{supportResult?.message}</p>
-          </Banner>
-        )}
-
-        {isAdmin && (
-          <Banner
-            tone="info"
-            title="Admin Mode Active"
-            action={{ content: "Open Admin Portal", url: "/app/admin" }}
-          >
-            <p>
-              To manage merchant tickets across all stores, access the <strong>Admin Portal</strong>.
-            </p>
           </Banner>
         )}
 
@@ -319,64 +228,19 @@ export default function HelpAndSupport() {
           </Grid.Cell>
         </Grid>
 
-        {/* Frequently Asked Questions */}
-        <Card padding="500">
-          <BlockStack gap="400">
-            <InlineStack gap="200" blockAlign="center">
-              <Box padding="200" background="bg-surface-secondary" borderRadius="200">
-                <Icon source={QuestionCircleIcon} tone="base" />
-              </Box>
-              <Text variant="headingMd" as="h2" fontWeight="bold">
-                Frequently Asked Questions & Quick Help
-              </Text>
-            </InlineStack>
-            <Divider />
-            <BlockStack gap="200">
-              {faqItems.map((item, idx) => (
-                <Box
-                  key={idx}
-                  padding="300"
-                  borderRadius="200"
-                  background="bg-surface-secondary"
-                >
-                  <BlockStack gap="200">
-                    <Button
-                      fullWidth
-                      textAlign="left"
-                      variant="plain"
-                      icon={openFaq === idx ? ChevronUpIcon : ChevronDownIcon}
-                      onClick={() => toggleFaq(idx)}
-                    >
-                      <Text variant="bodyMd" fontWeight="bold" as="span">
-                        {item.question}
-                      </Text>
-                    </Button>
-                    <Collapsible
-                      open={openFaq === idx}
-                      id={`faq-collapse-${idx}`}
-                      transition={{ duration: "200ms", timingFunction: "ease-in-out" }}
-                    >
-                      <Box paddingBlockStart="200">
-                        <Text variant="bodySm" tone="subdued">
-                          {item.answer}
-                        </Text>
-                      </Box>
-                    </Collapsible>
-                  </BlockStack>
-                </Box>
-              ))}
-            </BlockStack>
-          </BlockStack>
-        </Card>
-
-        {/* Ticket Submission Form */}
+        {/* Query Form */}
         <div ref={supportFormRef}>
           <Card padding="500">
             <BlockStack gap="400">
               <InlineStack align="space-between" blockAlign="center">
-                <Text variant="headingMd" as="h2" fontWeight="bold">
-                  Submit Support Request
-                </Text>
+                <BlockStack gap="100">
+                  <Text variant="headingMd" as="h2" fontWeight="bold">
+                    Send Merchant Query
+                  </Text>
+                  <Text variant="bodySm" tone="subdued">
+                    Your inquiry will generate an instant email notification to support. Replies are delivered directly to your contact email.
+                  </Text>
+                </BlockStack>
                 <Text variant="bodySm" tone="subdued">
                   Target Response: {supportSla}
                 </Text>
@@ -395,6 +259,7 @@ export default function HelpAndSupport() {
                       value={contactEmail}
                       onChange={(v) => setContactEmail(v)}
                       autoComplete="email"
+                      helpText="Replies to your query will be sent to this email address"
                     />
                     <Select
                       label="Inquiry Topic"
@@ -417,12 +282,12 @@ export default function HelpAndSupport() {
                   )}
 
                   <TextField
-                    label="Description"
+                    label="Query Message"
                     name="message"
                     value={message}
                     onChange={(v) => setMessage(v)}
                     multiline={5}
-                    placeholder="Describe your request or technical query..."
+                    placeholder="Write your merchant query or message here..."
                     autoComplete="off"
                   />
 
@@ -433,7 +298,7 @@ export default function HelpAndSupport() {
                       size="large"
                       loading={isSubmitting}
                     >
-                      Submit Ticket
+                      Send Query Message
                     </Button>
                   </InlineStack>
                 </FormLayout>
@@ -441,107 +306,8 @@ export default function HelpAndSupport() {
             </BlockStack>
           </Card>
         </div>
-
-        {/* Support Ticket History */}
-        {(supportTickets || []).length > 0 && (
-          <BlockStack gap="400">
-            <InlineStack align="space-between" blockAlign="center">
-              <Text variant="headingMd" as="h2" fontWeight="bold">
-                Ticket History ({(supportTickets || []).length})
-              </Text>
-              {isAdmin && (
-                <Button size="micro" url="/app/admin">
-                  Open Admin Portal
-                </Button>
-              )}
-            </InlineStack>
-
-            {(supportTickets || []).map((t) => (
-              <Card key={t.id} padding="500">
-                <BlockStack gap="400">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <BlockStack gap="050">
-                      <Text variant="headingSm" as="h3" fontWeight="bold">
-                        {t.subject}
-                      </Text>
-                      <Text variant="bodyXs" tone="subdued">
-                        ID: #{t.id.slice(0, 8)} · Created {new Date(t.createdAt).toLocaleString()}
-                      </Text>
-                    </BlockStack>
-
-                    <Badge
-                      tone={
-                        t.status === "OPEN"
-                          ? "attention"
-                          : t.status === "RESOLVED"
-                          ? "success"
-                          : "info"
-                      }
-                    >
-                      {t.status}
-                    </Badge>
-                  </InlineStack>
-
-                  <Divider />
-
-                  <BlockStack gap="300">
-                    {(t.messages || []).map((msg) => {
-                      const isMerchant = msg.sender === "MERCHANT";
-                      return (
-                        <Box
-                          key={msg.id}
-                          padding="300"
-                          borderRadius="200"
-                          background={isMerchant ? "bg-surface-secondary" : "bg-surface-info"}
-                        >
-                          <BlockStack gap="100">
-                            <InlineStack align="space-between" blockAlign="center">
-                              <Text variant="bodySm" fontWeight="bold">
-                                {isMerchant ? "You" : "Support Representative"}
-                              </Text>
-                              <Text variant="bodyXs" tone="subdued">
-                                {new Date(msg.createdAt).toLocaleString()}
-                              </Text>
-                            </InlineStack>
-                            <Text variant="bodySm">{msg.body}</Text>
-                          </BlockStack>
-                        </Box>
-                      );
-                    })}
-                  </BlockStack>
-
-                  {t.status !== "RESOLVED" && (
-                    <Box paddingBlockStart="200">
-                      <Form method="post">
-                        <input type="hidden" name="actionType" value="REPLY_TICKET" />
-                        <input type="hidden" name="ticketId" value={t.id} />
-                        <InlineStack gap="200" align="space-between" blockAlign="center">
-                          <div style={{ flex: 1 }}>
-                            <TextField
-                              labelHidden
-                              label="Reply message"
-                              name="message"
-                              value={replyMessages[t.id] || ""}
-                              onChange={(v) =>
-                                setReplyMessages((prev) => ({ ...prev, [t.id]: v }))
-                              }
-                              placeholder="Write a reply..."
-                              autoComplete="off"
-                            />
-                          </div>
-                          <Button submit variant="secondary">
-                            Send Reply
-                          </Button>
-                        </InlineStack>
-                      </Form>
-                    </Box>
-                  )}
-                </BlockStack>
-              </Card>
-            ))}
-          </BlockStack>
-        )}
       </BlockStack>
     </Page>
   );
 }
+

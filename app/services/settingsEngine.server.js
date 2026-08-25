@@ -72,3 +72,75 @@ export async function setYearlyDiscountPercentage(percentage) {
     };
   }
 }
+
+/**
+ * Get all merchant-specific promotional offers from database.
+ * @returns {Promise<Record<string, string>>} Mapping of storeId -> offerTag
+ */
+export async function getMerchantOffers() {
+  try {
+    const records = await prisma.globalSetting.findMany({
+      where: {
+        key: {
+          startsWith: "MERCHANT_OFFER_",
+        },
+      },
+    });
+
+    const offers = {};
+    records.forEach((rec) => {
+      const storeId = rec.key.replace("MERCHANT_OFFER_", "");
+      offers[storeId] = rec.value;
+    });
+
+    return offers;
+  } catch (error) {
+    console.error("[settingsEngine] Failed to read merchant offers:", error);
+    return {};
+  }
+}
+
+/**
+ * Set or clear a merchant-specific promotional offer.
+ * @param {string} storeId
+ * @param {string} offerTag - e.g. "2 Months Free Pro", "3 Months Free Access", or "" to clear
+ * @returns {Promise<{success: boolean, message?: string, error?: string}>}
+ */
+export async function setMerchantOffer(storeId, offerTag) {
+  try {
+    const settingKey = `MERCHANT_OFFER_${storeId}`;
+
+    if (!offerTag || offerTag.trim() === "") {
+      await prisma.globalSetting.deleteMany({
+        where: { key: settingKey },
+      });
+      return {
+        success: true,
+        message: "Merchant promotional offer cleared.",
+      };
+    }
+
+    const cleanTag = offerTag.trim();
+    await prisma.globalSetting.upsert({
+      where: { key: settingKey },
+      update: { value: cleanTag },
+      create: {
+        key: settingKey,
+        value: cleanTag,
+      },
+    });
+
+    return {
+      success: true,
+      offerTag: cleanTag,
+      message: `Merchant special offer "${cleanTag}" saved.`,
+    };
+  } catch (error) {
+    console.error("[settingsEngine] Failed to save merchant offer:", error);
+    return {
+      success: false,
+      error: `Could not save merchant offer: ${error.message}`,
+    };
+  }
+}
+

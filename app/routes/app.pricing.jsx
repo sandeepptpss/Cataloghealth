@@ -36,13 +36,7 @@ export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const store = await ensureStoreRecord(session.shop);
 
-  const supportTickets = await prisma.supportTicket.findMany({
-    where: { storeId: store.id },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-  });
-
-  return { store, supportTickets, adminEmail: getAdminEmail() };
+  return { store, adminEmail: getAdminEmail() };
 };
 
 export const action = async ({ request }) => {
@@ -109,7 +103,7 @@ export const action = async ({ request }) => {
 };
 
 export default function PricingPlans() {
-  const { store, supportTickets, adminEmail: ADMIN_EMAIL } = useLoaderData();
+  const { store, adminEmail: ADMIN_EMAIL } = useLoaderData();
   const actionData = useActionData();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -208,7 +202,7 @@ export default function PricingPlans() {
     {
       id: "growth",
       name: "Growth Plan",
-      price: "$7.99",
+      price: "$4.99",
       period: "/month",
       badge: "Growing Stores",
       badgeTone: "info",
@@ -225,7 +219,7 @@ export default function PricingPlans() {
     {
       id: "pro",
       name: "Pro Advanced",
-      price: "$19.99",
+      price: "$9.99",
       period: "/month",
       badge: "Most Popular",
       badgeTone: "highlight",
@@ -242,7 +236,7 @@ export default function PricingPlans() {
     {
       id: "enterprise",
       name: "Plus Enterprise",
-      price: "$39.99",
+      price: "$19.99",
       period: "/month",
       badge: "Unlimited",
       badgeTone: "success",
@@ -509,54 +503,6 @@ export default function PricingPlans() {
                 </BlockStack>
               </Box>
             </div>
-
-            {/* Recent Merchant Support Tickets */}
-            {supportTickets.length > 0 && (
-              <BlockStack gap="3">
-                <Text variant="headingSm" as="h4">
-                  Your Recent Support Tickets ({supportTickets.length})
-                </Text>
-                {supportTickets.map((ticket) => (
-                  <Card key={ticket.id} padding="300">
-                    <BlockStack gap="200">
-                      <InlineStack align="space-between">
-                        <BlockStack gap="1">
-                          <Text variant="bodyMd" fontWeight="bold">
-                            {ticket.subject}
-                          </Text>
-                          <Text variant="bodySm" tone="subdued">
-                            {ticket.message}
-                          </Text>
-                          <Text variant="bodySm" tone="subdued">
-                            Sent on: {new Date(ticket.createdAt).toLocaleString()}
-                          </Text>
-                        </BlockStack>
-                        <Badge tone={ticket.status === "OPEN" ? "attention" : "success"}>
-                          {ticket.status}
-                        </Badge>
-                      </InlineStack>
-
-                      {ticket.reply && (
-                        <Box
-                          padding="300"
-                          borderRadius="150"
-                          background="bg-surface-success-subdued"
-                        >
-                          <BlockStack gap="100">
-                            <Text variant="bodySm" fontWeight="bold" tone="success">
-                              Admin Support Response ({ADMIN_EMAIL}):
-                            </Text>
-                            <Text variant="bodySm">
-                              {ticket.reply}
-                            </Text>
-                          </BlockStack>
-                        </Box>
-                      )}
-                    </BlockStack>
-                  </Card>
-                ))}
-              </BlockStack>
-            )}
           </BlockStack>
         </Card>
       </BlockStack>

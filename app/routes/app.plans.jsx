@@ -115,8 +115,8 @@ export default function Plans() {
     {
       id: "growth",
       name: "Growth",
-      priceAmount: 7.99,
-      price: "$7.99",
+      priceAmount: 4.99,
+      price: "$4.99",
       period: "/month",
       badge: "RECOMMENDED",
       badgeTone: "info",
@@ -134,8 +134,8 @@ export default function Plans() {
     {
       id: "pro",
       name: "Pro Advanced",
-      priceAmount: 19.99,
-      price: "$19.99",
+      priceAmount: 9.99,
+      price: "$9.99",
       period: "/month",
       badge: "MOST POPULAR",
       badgeTone: "highlight",
@@ -153,8 +153,8 @@ export default function Plans() {
     {
       id: "enterprise",
       name: "Plus Enterprise",
-      priceAmount: 39.99,
-      price: "$39.99",
+      priceAmount: 19.99,
+      price: "$19.99",
       period: "/month",
       badge: "UNLIMITED",
       badgeTone: "success",
@@ -457,18 +457,18 @@ export default function Plans() {
                     <th style={{ padding: "12px 16px", width: "17%" }}>Starter Free</th>
                     <th style={{ padding: "12px 16px", width: "17%" }}>
                       {billingInterval === "yearly"
-                        ? `Growth (${calculateYearlyPricing(7.99, yearlyDiscountPercent).monthlyEquivalentFormatted}/mo)`
-                        : "Growth ($7.99/mo)"}
+                        ? `Growth (${calculateYearlyPricing(4.99, yearlyDiscountPercent).monthlyEquivalentFormatted}/mo)`
+                        : "Growth ($4.99/mo)"}
                     </th>
                     <th style={{ padding: "12px 16px", width: "17%" }}>
                       {billingInterval === "yearly"
-                        ? `Pro (${calculateYearlyPricing(19.99, yearlyDiscountPercent).monthlyEquivalentFormatted}/mo)`
-                        : "Pro ($19.99/mo)"}
+                        ? `Pro (${calculateYearlyPricing(9.99, yearlyDiscountPercent).monthlyEquivalentFormatted}/mo)`
+                        : "Pro ($9.99/mo)"}
                     </th>
                     <th style={{ padding: "12px 16px", width: "17%" }}>
                       {billingInterval === "yearly"
-                        ? `Enterprise (${calculateYearlyPricing(39.99, yearlyDiscountPercent).monthlyEquivalentFormatted}/mo)`
-                        : "Enterprise ($39.99/mo)"}
+                        ? `Enterprise (${calculateYearlyPricing(19.99, yearlyDiscountPercent).monthlyEquivalentFormatted}/mo)`
+                        : "Enterprise ($19.99/mo)"}
                     </th>
                   </tr>
                 </thead>

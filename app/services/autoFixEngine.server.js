@@ -110,6 +110,23 @@ export function generateDynamicProductDescription(product) {
 `.trim();
 }
 
+const METAFIELDS_SET_MUTATION = `#graphql
+  mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
+    metafieldsSet(metafields: $metafields) {
+      metafields {
+        id
+        namespace
+        key
+        value
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
 /**
  * Enterprise Auto-Fix Resolution Engine
  * 
@@ -253,6 +270,34 @@ export async function autoFixIssue(admin, storeId, issueId) {
 
     fixed = true;
     fixMessage = `Auto-assigned barcode: "${generatedBarcode}" to variant "${variant.title}".`;
+  } else if (issue.issueType === "MISSING_METAFIELD" && product) {
+    const rawField = (issue.fieldName || "").trim();
+    const parts = rawField.split(".");
+    const namespace = parts.length > 1 ? parts[0] : "custom";
+    const key = parts.length > 1 ? parts.slice(1).join("_") : parts[0] || "audit_status";
+    const defaultValue = "Verified & Audited";
+
+    const res = await graphqlWithRetry(admin, METAFIELDS_SET_MUTATION, {
+      variables: {
+        metafields: [
+          {
+            ownerId: product.shopifyProductId,
+            namespace,
+            key,
+            type: "single_line_text_field",
+            value: defaultValue,
+          },
+        ],
+      },
+    });
+
+    const userErrors = res.data?.metafieldsSet?.userErrors || [];
+    if (userErrors.length > 0) {
+      throw new Error(`Shopify API error: ${userErrors.map((e) => e.message).join("; ")}`);
+    }
+
+    fixed = true;
+    fixMessage = `Auto-populated default value "${defaultValue}" for metafield "${namespace}.${key}".`;
   } else {
     throw new Error(`Auto-fix is not supported for issue type "${issue.issueType}". Manual intervention required.`);
   }
