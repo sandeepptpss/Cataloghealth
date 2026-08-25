@@ -1,9 +1,10 @@
 /* global process */
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   Outlet,
   useLoaderData,
   useNavigation,
+  useLocation,
   useRouteError,
   Link as ReactRouterLink,
 } from "react-router";
@@ -108,8 +109,19 @@ function UserFriendlyPageLoader({ isVisible }) {
 export default function App() {
   const { apiKey, isAdmin } = useLoaderData();
   const navigation = useNavigation();
+  const location = useLocation();
 
-  const isNavigating = navigation.state !== "idle";
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    setIsLoading(true);
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [location.pathname, location.search]);
+
+  const showLoader = isLoading || navigation.state !== "idle";
   const navMenu = useAppNavMenu(isAdmin);
 
   return (
@@ -117,7 +129,7 @@ export default function App() {
       <PolarisProvider i18n={enTranslations} linkComponent={PolarisLink}>
         <Frame>
           {navMenu}
-          <UserFriendlyPageLoader isVisible={isNavigating} />
+          <UserFriendlyPageLoader isVisible={showLoader} />
           <div className="app-content-container">
             <Outlet />
           </div>
