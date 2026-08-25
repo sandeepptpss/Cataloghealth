@@ -87,9 +87,23 @@ export default function App() {
                 outline: none;
               }
 
-              /* Hide Polaris Frame Skip accessibility text during loading/renders */
-              .Polaris-Frame__Skip {
+              /* Hide Polaris Frame top bar placeholders that cause gray box rendering & page jumps */
+              .Polaris-Frame__Skip,
+              .Polaris-Frame__Loading,
+              .Polaris-Frame__TopBar {
                 display: none !important;
+                height: 0 !important;
+                min-height: 0 !important;
+                padding: 0 !important;
+                margin: 0 !important;
+              }
+
+              .Polaris-Frame__Main {
+                padding-top: 0 !important;
+              }
+
+              .Polaris-Page {
+                padding-top: 16px !important;
               }
 
               .Polaris-Icon { display: inline-flex; width: 1.25rem; height: 1.25rem; flex-shrink: 0; vertical-align: middle; }

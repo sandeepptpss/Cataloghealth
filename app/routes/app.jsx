@@ -1,10 +1,9 @@
 /* global process */
-import { useMemo, useState, useEffect } from "react";
+import { useMemo } from "react";
 import {
   Outlet,
   useLoaderData,
   useNavigation,
-  useLocation,
   useRouteError,
   Link as ReactRouterLink,
 } from "react-router";
@@ -78,7 +77,7 @@ function UserFriendlyPageLoader({ isVisible }) {
     <div
       style={{
         position: "fixed",
-        top: "24px",
+        top: "16px",
         left: "50%",
         transform: "translateX(-50%)",
         zIndex: 999999,
@@ -90,11 +89,11 @@ function UserFriendlyPageLoader({ isVisible }) {
           background: "#ffffff",
           border: "1px solid #c9cccf",
           borderRadius: "24px",
-          padding: "8px 22px",
-          boxShadow: "0 8px 24px rgba(0, 0, 0, 0.12)",
+          padding: "6px 18px",
+          boxShadow: "0 6px 20px rgba(0, 0, 0, 0.1)",
           display: "flex",
           alignItems: "center",
-          gap: "10px",
+          gap: "8px",
         }}
       >
         <Spinner size="small" tone="primary" />
@@ -109,27 +108,8 @@ function UserFriendlyPageLoader({ isVisible }) {
 export default function App() {
   const { apiKey, isAdmin } = useLoaderData();
   const navigation = useNavigation();
-  const location = useLocation();
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [isContentReady, setIsContentReady] = useState(false);
-
-  useEffect(() => {
-    setIsLoading(true);
-    setIsContentReady(false);
-
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-      setTimeout(() => {
-        setIsContentReady(true);
-      }, 60);
-    }, 800);
-
-    return () => clearTimeout(timer);
-  }, [location.pathname, location.search]);
-
-  const showLoader = isLoading || navigation.state !== "idle";
-  const showContent = !showLoader && isContentReady;
+  const isNavigating = navigation.state !== "idle";
   const navMenu = useAppNavMenu(isAdmin);
 
   return (
@@ -137,17 +117,8 @@ export default function App() {
       <PolarisProvider i18n={enTranslations} linkComponent={PolarisLink}>
         <Frame>
           {navMenu}
-          <UserFriendlyPageLoader isVisible={showLoader} />
-          <div
-            className="app-content-container"
-            style={{
-              opacity: showContent ? 1 : 0,
-              visibility: showContent ? "visible" : "hidden",
-              transition: "opacity 0.25s ease-out",
-              minHeight: "100vh",
-              backgroundColor: "#f1f2f4",
-            }}
-          >
+          <UserFriendlyPageLoader isVisible={isNavigating} />
+          <div className="app-content-container">
             <Outlet />
           </div>
         </Frame>
