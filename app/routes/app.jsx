@@ -142,17 +142,13 @@ export default function App() {
       <PolarisProvider i18n={enTranslations} linkComponent={PolarisLink}>
         <Frame>
           {navMenu}
-          <FullPageLoadingScreen isVisible={showLoader} />
-          <div
-            className="app-content-container"
-            style={{
-              opacity: showLoader ? 0 : 1,
-              visibility: showLoader ? "hidden" : "visible",
-              transition: "opacity 0.2s ease-in-out",
-            }}
-          >
-            <Outlet />
-          </div>
+          {showLoader ? (
+            <FullPageLoadingScreen isVisible={true} />
+          ) : (
+            <div className="app-content-container">
+              <Outlet />
+            </div>
+          )}
         </Frame>
       </PolarisProvider>
     </ShopifyAppProvider>
