@@ -218,7 +218,7 @@ export default function HelpAndSupport() {
                   <Badge tone="success">{PLAN_LABELS[currentPlanId] || currentPlanId}</Badge>
                 </InlineStack>
                 <Text variant="bodySm">
-                  Guaranteed Response Time: <strong>{supportSla}</strong>
+                  Guaranteed SLA Target: <strong>{supportSla}</strong>
                 </Text>
                 <Text variant="bodySm" tone="subdued">
                   SLA targets are defined by your active subscription plan tier.

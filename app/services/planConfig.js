@@ -34,7 +34,7 @@ export const PLAN_CONFIG = {
     emailAlerts: false,
     instantCriticalAlerts: false,
     multiLocation: false,
-    supportSla: "Community support",
+    supportSla: "48 Hours (Community Support)",
   },
   growth: {
     id: "growth",
@@ -54,7 +54,7 @@ export const PLAN_CONFIG = {
     emailAlerts: true,
     instantCriticalAlerts: false,
     multiLocation: false,
-    supportSla: "Priority support (24h SLA)",
+    supportSla: "24 Hours (Priority Email Support)",
   },
   pro: {
     id: "pro",
@@ -74,7 +74,7 @@ export const PLAN_CONFIG = {
     emailAlerts: true,
     instantCriticalAlerts: true,
     multiLocation: false,
-    supportSla: "Priority support (4h SLA)",
+    supportSla: "4 Hours (Express Priority Support)",
   },
   enterprise: {
     id: "enterprise",
@@ -94,7 +94,7 @@ export const PLAN_CONFIG = {
     emailAlerts: true,
     instantCriticalAlerts: true,
     multiLocation: true,
-    supportSla: "VIP 1-on-1 admin support",
+    supportSla: "1 Hour (VIP 1-on-1 Admin Support)",
   },
 };
 
