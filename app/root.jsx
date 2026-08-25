@@ -1,22 +1,11 @@
-import { Links, Meta, Outlet, Scripts } from "react-router";
+import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 import interLatinWoff2 from "./fonts/InterVariable-latin.woff2?url";
 
 // Polaris renders everything in Inter (--p-font-family-sans). Nothing in the document
 // requests it, so the CDN polaris.js script appends the stylesheet itself once it has
-// executed, and every @font-face in that stylesheet is `font-display: swap` -- so a cold
-// load painted in the system fallback and re-flowed every glyph a second or two later.
-// That is the "page jump".
-//
-// The latin subset is served from our own origin (see app/fonts/README.md) so it can be
-// preloaded and is ready before first paint. Importing it through Vite rather than dropping
-// it in public/ gets it a content hash and a one-year immutable cache; public/ is only
-// served with max-age=1h, which would put a revalidation round trip in front of first paint.
-//
-// It is aliased to a private family name and put ahead of "Inter" in the stack below:
-// polaris.js still appends Shopify's stylesheet, and a same-named @font-face arriving later
-// in the cascade would otherwise win and re-trigger the very swap we are avoiding. Non-latin
-// glyphs fall through to Shopify's copy as before.
+// executed. Using font-display: optional prevents late layout shifts (page jumps) 1-2 seconds
+// after load when web fonts finish downloading.
 const INTER_LATIN_WOFF2 = interLatinWoff2;
 
 // Unversioned, so safe to hard-code. Requesting it here rather than waiting for polaris.js
@@ -31,11 +20,8 @@ export const links = () => [
     as: "font",
     type: "font/woff2",
     href: INTER_LATIN_WOFF2,
-    // Required even same-origin: fonts are always fetched in CORS mode, and a preload whose
-    // mode does not match the eventual @font-face request downloads the file twice.
     crossOrigin: "anonymous",
   },
-  // `crossorigin` matches the link polaris.js appends, so its request is a cache hit.
   { rel: "stylesheet", href: INTER_STYLESHEET, crossOrigin: "anonymous" },
   { rel: "stylesheet", href: polarisStyles },
 ];
@@ -51,6 +37,11 @@ export default function App() {
         <meta name="viewport" content="width=device-width,initial-scale=1" />
         <Meta />
         <Links />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if('scrollRestoration' in window.history){window.history.scrollRestoration='manual';}`,
+          }}
+        />
         <style
           dangerouslySetInnerHTML={{
             __html: `
@@ -58,7 +49,7 @@ export default function App() {
                 font-family: "InterLatin";
                 font-style: normal;
                 font-weight: 100 900;
-                font-display: swap;
+                font-display: optional;
                 src: url("${INTER_LATIN_WOFF2}") format("woff2");
                 unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
                   U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
@@ -79,6 +70,7 @@ export default function App() {
                 /* Reserve the scrollbar track up front so content that grows past the
                    viewport after hydration does not shift sideways. */
                 scrollbar-gutter: stable;
+                overflow-y: scroll;
               }
 
               html, body, #app {
@@ -95,6 +87,7 @@ export default function App() {
 
               :focus, :focus-visible {
                 scroll-margin: 0 !important;
+                outline: none;
               }
 
               .Polaris-Icon { display: inline-flex; width: 1.25rem; height: 1.25rem; flex-shrink: 0; vertical-align: middle; }
@@ -149,6 +142,7 @@ export default function App() {
       </head>
       <body>
         <Outlet />
+        <ScrollRestoration />
         <Scripts />
       </body>
     </html>

@@ -46,8 +46,7 @@ function useAppNavMenu(isAdmin) {
   return useMemo(
     () => (
       <ui-nav-menu>
-        <a href="/app" rel="home">Catalog Health</a>
-        <a href="/app">Dashboard</a>
+        <a href="/app" rel="home">Dashboard</a>
         <a href="/app/rules">Validation Rules</a>
         <a href="/app/logs">Logs</a>
         <a href="/app/help">Help</a>
