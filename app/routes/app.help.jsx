@@ -158,16 +158,23 @@ export default function HelpAndSupport() {
   ];
 
   return (
-    <Page
-      fullWidth
-      title="Merchant Support & Chat Inquiry"
-      subtitle="Send a direct query notification to support. All responses are sent and managed via email."
-      primaryAction={{
-        content: "Send Query",
-        onClick: handleScrollToForm,
-      }}
-    >
+    <Page fullWidth>
       <BlockStack gap="500">
+        <Card padding="500">
+          <InlineStack align="space-between" blockAlign="center">
+            <BlockStack gap="100">
+              <Text variant="headingLg" as="h1" fontWeight="bold">
+                Merchant Support & Chat Inquiry
+              </Text>
+              <Text variant="bodySm" tone="subdued">
+                Send a direct query notification to support. All responses are sent and managed via email.
+              </Text>
+            </BlockStack>
+            <Button variant="primary" size="large" onClick={handleScrollToForm}>
+              Send Query
+            </Button>
+          </InlineStack>
+        </Card>
         {supportResult?.error && (
           <Banner tone="critical" title="Submission Error">
             <p>{supportResult.error}</p>

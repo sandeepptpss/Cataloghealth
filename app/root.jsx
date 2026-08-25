@@ -1,14 +1,47 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import { Links, Meta, Outlet, Scripts } from "react-router";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
+import interLatinWoff2 from "./fonts/InterVariable-latin.woff2?url";
+
+// Polaris renders everything in Inter (--p-font-family-sans). Nothing in the document
+// requests it, so the CDN polaris.js script appends the stylesheet itself once it has
+// executed, and every @font-face in that stylesheet is `font-display: swap` -- so a cold
+// load painted in the system fallback and re-flowed every glyph a second or two later.
+// That is the "page jump".
+//
+// The latin subset is served from our own origin (see app/fonts/README.md) so it can be
+// preloaded and is ready before first paint. Importing it through Vite rather than dropping
+// it in public/ gets it a content hash and a one-year immutable cache; public/ is only
+// served with max-age=1h, which would put a revalidation round trip in front of first paint.
+//
+// It is aliased to a private family name and put ahead of "Inter" in the stack below:
+// polaris.js still appends Shopify's stylesheet, and a same-named @font-face arriving later
+// in the cascade would otherwise win and re-trigger the very swap we are avoiding. Non-latin
+// glyphs fall through to Shopify's copy as before.
+const INTER_LATIN_WOFF2 = interLatinWoff2;
+
+// Unversioned, so safe to hard-code. Requesting it here rather than waiting for polaris.js
+// means the non-latin subsets are in flight early too.
+const INTER_STYLESHEET = "https://cdn.shopify.com/static/fonts/inter/v4/styles.css";
 
 export const links = () => [
-  { rel: "preconnect", href: "https://cdn.shopify.com/" },
+  { rel: "preconnect", href: "https://cdn.shopify.com" },
+  { rel: "preconnect", href: "https://cdn.shopify.com", crossOrigin: "anonymous" },
   {
-    rel: "stylesheet",
-    href: "https://cdn.shopify.com/static/fonts/inter/v4/styles.css",
+    rel: "preload",
+    as: "font",
+    type: "font/woff2",
+    href: INTER_LATIN_WOFF2,
+    // Required even same-origin: fonts are always fetched in CORS mode, and a preload whose
+    // mode does not match the eventual @font-face request downloads the file twice.
+    crossOrigin: "anonymous",
   },
+  // `crossorigin` matches the link polaris.js appends, so its request is a cache hit.
+  { rel: "stylesheet", href: INTER_STYLESHEET, crossOrigin: "anonymous" },
   { rel: "stylesheet", href: polarisStyles },
 ];
+
+const FONT_STACK =
+  '"InterLatin", "Inter", -apple-system, BlinkMacSystemFont, "San Francisco", "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
 
 export default function App() {
   return (
@@ -18,85 +51,56 @@ export default function App() {
         <meta name="viewport" content="width=device-width,initial-scale=1" />
         <Meta />
         <Links />
-        <script src="https://cdn.shopify.com/shopifycloud/polaris.js" />
         <style
           dangerouslySetInnerHTML={{
             __html: `
+              @font-face {
+                font-family: "InterLatin";
+                font-style: normal;
+                font-weight: 100 900;
+                font-display: swap;
+                src: url("${INTER_LATIN_WOFF2}") format("woff2");
+                unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+                  U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+                  U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+              }
+
+              /* Same specificity as Polaris' own declaration and later in the cascade, so
+                 this wins without !important. */
+              :root, .p-theme-light {
+                --p-font-family-sans: ${FONT_STACK};
+              }
+
               *, *::before, *::after {
-                box-sizing: border-box !important;
+                box-sizing: border-box;
               }
+
               html {
+                /* Reserve the scrollbar track up front so content that grows past the
+                   viewport after hydration does not shift sideways. */
                 scrollbar-gutter: stable;
-                overflow-y: scroll;
               }
+
               html, body, #app {
                 margin: 0;
                 padding: 0;
                 background-color: #f1f2f4;
-                font-family: -apple-system, BlinkMacSystemFont, "San Francisco", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+                font-family: ${FONT_STACK};
                 -webkit-font-smoothing: antialiased;
-                min-height: 100vh !important;
-                height: 100% !important;
-                overflow-x: hidden !important;
+                min-height: 100vh;
+                max-width: 100%;
+                overflow-x: hidden;
+                scroll-behavior: auto !important;
               }
 
-              /* Completely disable and strip all hover transforms, transitions, animations, and shadows across all elements */
-              :focus, :focus-visible, :focus-within {
+              :focus, :focus-visible {
                 scroll-margin: 0 !important;
               }
-              *:hover, *:hover::before, *:hover::after,
-              a:hover, button:hover, [role="button"]:hover,
-              .Polaris-Button:hover, .Polaris-Link:hover,
-              .Polaris-DataTable__TableRow:hover, .Polaris-ResourceItem:hover, .Polaris-Card:hover {
-                transform: none !important;
-                transition: none !important;
-                animation: none !important;
-                box-shadow: none !important;
-                outline-offset: 0 !important;
-              }
 
-              /* Lock Polaris Frame offsets so JS hydration never shifts padding after mount */
-              .Polaris-Frame {
-                min-height: 100vh !important;
-                height: 100% !important;
-                background-color: #f1f2f4 !important;
-                display: flex !important;
-                flex-direction: column !important;
-              }
-              .Polaris-Frame__Main {
-                padding-top: 0 !important;
-                margin-top: 0 !important;
-                flex: 1 1 auto !important;
-                display: flex !important;
-                flex-direction: column !important;
-              }
-              .Polaris-Frame__Content {
-                padding-top: 0 !important;
-                flex: 1 1 auto !important;
-              }
-              .Polaris-Page {
-                padding-top: 1.25rem !important;
-                padding-bottom: 2rem !important;
-                box-sizing: border-box !important;
-              }
-              
-              .Polaris-Icon { display: inline-flex !important; width: 1.25rem !important; height: 1.25rem !important; flex-shrink: 0 !important; vertical-align: middle; }
-              .Polaris-Icon__Svg { width: 100% !important; height: 100% !important; fill: currentColor; display: block; }
-              
-              /* Lock Polaris Table Layout to prevent column width shifts after mount */
-              .Polaris-DataTable__Table {
-                table-layout: fixed !important;
-                width: 100% !important;
-              }
-              .Polaris-DataTable__Cell, .Polaris-DataTable__Heading {
-                white-space: normal !important;
-                word-break: break-word !important;
-                overflow-wrap: break-word !important;
-                vertical-align: middle !important;
-              }
-              
-              /* Top progress bar: always mounted, faded in/out via .is-active so
-                 navigation never inserts or removes a node in the Frame. */
+              .Polaris-Icon { display: inline-flex; width: 1.25rem; height: 1.25rem; flex-shrink: 0; vertical-align: middle; }
+              .Polaris-Icon__Svg { width: 100%; height: 100%; fill: currentColor; display: block; }
+
+              /* Top progress bar */
               .top-loading-bar {
                 position: fixed;
                 top: 0;
@@ -125,28 +129,12 @@ export default function App() {
                 100% { background-position: -200% 0; }
               }
 
-              /* Ultra-smooth zero-displacement page fade transition */
-              @keyframes smoothPageFade {
-                0% {
-                  opacity: 0.7;
-                }
-                100% {
-                  opacity: 1;
-                }
-              }
-
-              .page-smooth-fade {
-                animation: smoothPageFade 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-                transform: none !important;
-                will-change: opacity;
-              }
-
-              /* Permanent Fixed Container - No Opacity Flickering, No Movement */
               .app-content-container {
                 min-height: 100vh;
                 width: 100%;
+                max-width: 100%;
+                overflow-x: hidden;
                 box-sizing: border-box;
-                transform: none !important;
               }
 
               @media (prefers-reduced-motion: reduce) {
@@ -161,7 +149,6 @@ export default function App() {
       </head>
       <body>
         <Outlet />
-        <ScrollRestoration />
         <Scripts />
       </body>
     </html>

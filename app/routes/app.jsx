@@ -1,6 +1,6 @@
 /* global process */
 import { useMemo, useEffect } from "react";
-import { Outlet, useLoaderData, useNavigate, useNavigation, useLocation, useRouteError } from "react-router";
+import { Outlet, useLoaderData, useNavigate, useNavigation, useLocation, useRouteError, Link as ReactRouterLink } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-react-router/react";
 import { AppProvider as PolarisProvider, Frame } from "@shopify/polaris";
@@ -21,6 +21,23 @@ export const loader = async ({ request }) => {
   };
 };
 
+const IS_EXTERNAL_LINK_REGEX = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
+
+function PolarisLink({ children, url = "", external, ref, ...rest }) {
+  if (external || IS_EXTERNAL_LINK_REGEX.test(url)) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" {...rest}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <ReactRouterLink to={url} ref={ref} {...rest}>
+      {children}
+    </ReactRouterLink>
+  );
+}
+
 /**
  * Plain <a> tags inside <ui-nav-menu> prevent React Router from attaching mouseover/hover
  * prefetch listeners, ensuring hovering over sidebar menu items stays 100% inert and jump-free.
@@ -32,7 +49,7 @@ function useAppNavMenu(isAdmin) {
         <a href="/app" rel="home">Catalog Health</a>
         <a href="/app">Dashboard</a>
         <a href="/app/rules">Validation Rules</a>
-        <a href="/app/scans">Logs</a>
+        <a href="/app/logs">Logs</a>
         <a href="/app/help">Help</a>
         <a href="/app/plans">Plans</a>
         {isAdmin ? <a href="/app/admin">Admin Portal</a> : null}
@@ -45,38 +62,19 @@ function useAppNavMenu(isAdmin) {
 export default function App() {
   const { apiKey, isAdmin } = useLoaderData();
   const navigation = useNavigation();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const isNavigating = navigation.state !== "idle";
+  const isNavigating = navigation.state === "loading" && navigation.formData == null;
   const navMenu = useAppNavMenu(isAdmin);
-
-  // Intercept click on ui-nav-menu items to perform SPA client-side navigation only when clicked
-  useEffect(() => {
-    const handleNavClick = (e) => {
-      const anchor = e.target.closest("ui-nav-menu a");
-      if (anchor) {
-        const href = anchor.getAttribute("href");
-        if (href && href.startsWith("/")) {
-          e.preventDefault();
-          navigate(href);
-        }
-      }
-    };
-
-    document.addEventListener("click", handleNavClick, true);
-    return () => document.removeEventListener("click", handleNavClick, true);
-  }, [navigate]);
 
   return (
     <ShopifyAppProvider embedded apiKey={apiKey}>
-      <PolarisProvider i18n={enTranslations}>
+      <PolarisProvider i18n={enTranslations} linkComponent={PolarisLink}>
         <Frame>
           {navMenu}
           <div
             className={`top-loading-bar${isNavigating ? " is-active" : ""}`}
             aria-hidden="true"
           />
-          <div key={location.pathname} className="app-content-container page-smooth-fade">
+          <div className="app-content-container">
             <Outlet />
           </div>
         </Frame>

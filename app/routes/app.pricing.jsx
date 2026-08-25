@@ -253,16 +253,28 @@ export default function PricingPlans() {
   ];
 
   return (
-    <Page
-      title="Pricing Plans & Support"
-      subtitle="Choose the right catalog monitoring plan for your store size & get instant merchant support"
-      primaryAction={{
-        content: "Contact Support",
-        icon: EmailIcon,
-        onClick: handleOpenSupportForm,
-      }}
-    >
+    <Page fullWidth>
       <BlockStack gap="5">
+        <Card padding="500">
+          <InlineStack align="space-between" blockAlign="center">
+            <BlockStack gap="100">
+              <Text variant="headingLg" as="h1" fontWeight="bold">
+                Pricing Plans & Support
+              </Text>
+              <Text variant="bodySm" tone="subdued">
+                Choose the right catalog monitoring plan for your store size & get instant merchant support
+              </Text>
+            </BlockStack>
+            <Button
+              variant="primary"
+              size="large"
+              icon={EmailIcon}
+              onClick={handleOpenSupportForm}
+            >
+              Contact Support
+            </Button>
+          </InlineStack>
+        </Card>
         {feedbackBanner && (
           <Banner tone="success" onDismiss={() => setFeedbackBanner("")}>
             <p>{feedbackBanner}</p>

@@ -17,7 +17,7 @@ import {
   Checkbox,
   Banner,
 } from "@shopify/polaris";
-import { PlusIcon, DeleteIcon } from "@shopify/polaris-icons";
+import { PlusIcon, DeleteIcon, EditIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { ensureStoreRecord } from "../services/syncEngine.server.js";
@@ -123,6 +123,62 @@ export const action = async ({ request }) => {
     return { success: true };
   }
 
+  if (actionType === "UPDATE_RULE") {
+    if (!planConfig.customRules) {
+      return { success: false, error: featureUpgradeMessage("customRules") };
+    }
+    const ruleId = formData.get("ruleId");
+    const existingRule = await prisma.validationRule.findFirst({
+      where: { id: ruleId, storeId: store.id },
+    });
+    if (!existingRule) {
+      return { success: false, error: "Rule not found." };
+    }
+
+    const name = (formData.get("name") || "").toString().trim();
+    if (!name) {
+      return { success: false, error: "Rule name is required." };
+    }
+    const description = formData.get("description") || "";
+    const rawPriority = parseInt(formData.get("priority"), 10);
+    const priority = Number.isFinite(rawPriority) ? Math.min(100, Math.max(1, rawPriority)) : 50;
+    const scopeType = formData.get("scopeType") || "ALL";
+    const scopeValue = (formData.get("scopeValue") || "").toString().trim();
+
+    if (scopeType !== "ALL" && !scopeValue) {
+      return { success: false, error: `A ${scopeType} rule needs a target value.` };
+    }
+    const rawMinImages = parseInt(formData.get("minImages"), 10);
+    const minImages = Number.isFinite(rawMinImages) ? Math.max(0, rawMinImages) : 1;
+    const requiredMetafields = formData.get("requiredMetafields") || "";
+
+    const checkPrices = formData.get("checkPrices") === "true";
+    const checkSku = formData.get("checkSku") === "true";
+    const checkBarcode = formData.get("checkBarcode") === "true";
+    const checkDescription = formData.get("checkDescription") === "true";
+    const checkInventory =
+      planConfig.multiLocation && formData.get("checkInventory") === "true";
+
+    await prisma.validationRule.update({
+      where: { id: existingRule.id },
+      data: {
+        name,
+        description,
+        priority,
+        scopeType,
+        scopeValue,
+        minImages,
+        requiredMetafields,
+        checkPrices,
+        checkSku,
+        checkBarcode,
+        checkDescription,
+        checkInventory,
+      },
+    });
+    return { success: true };
+  }
+
   if (actionType === "DELETE_RULE") {
     const ruleId = formData.get("ruleId");
     if (ruleId) {
@@ -146,6 +202,7 @@ export default function ValidationRules() {
   const isCustomRulesAllowed = planConfig?.customRules ?? false;
 
   const [modalActive, setModalActive] = useState(false);
+  const [editingRuleId, setEditingRuleId] = useState(null);
   const [ruleName, setRuleName] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("50");
@@ -168,30 +225,49 @@ export default function ValidationRules() {
     submit({ actionType: "DELETE_RULE", ruleId }, { method: "post" });
   };
 
+  const handleEditRule = (rule) => {
+    setEditingRuleId(rule.id);
+    setRuleName(rule.name || "");
+    setDescription(rule.description || "");
+    setPriority(String(rule.priority ?? 50));
+    setScopeType(rule.scopeType || "ALL");
+    setScopeValue(rule.scopeValue || "");
+    setMinImages(String(rule.minImages ?? 1));
+    setRequiredMetafields(rule.requiredMetafields || "");
+    setCheckPrices(rule.checkPrices ?? true);
+    setCheckSku(rule.checkSku ?? true);
+    setCheckBarcode(rule.checkBarcode ?? false);
+    setCheckDescription(rule.checkDescription ?? true);
+    setCheckInventory(rule.checkInventory ?? false);
+    setModalActive(true);
+  };
+
   const handleSaveRule = () => {
-    submit(
-      {
-        actionType: "CREATE_RULE",
-        name: ruleName,
-        description,
-        priority,
-        scopeType,
-        scopeValue,
-        minImages,
-        requiredMetafields,
-        checkPrices: String(checkPrices),
-        checkSku: String(checkSku),
-        checkBarcode: String(checkBarcode),
-        checkDescription: String(checkDescription),
-        checkInventory: String(checkInventory),
-      },
-      { method: "post" }
-    );
+    const payload = {
+      actionType: editingRuleId ? "UPDATE_RULE" : "CREATE_RULE",
+      name: ruleName,
+      description,
+      priority,
+      scopeType,
+      scopeValue,
+      minImages,
+      requiredMetafields,
+      checkPrices: String(checkPrices),
+      checkSku: String(checkSku),
+      checkBarcode: String(checkBarcode),
+      checkDescription: String(checkDescription),
+      checkInventory: String(checkInventory),
+    };
+    if (editingRuleId) {
+      payload.ruleId = editingRuleId;
+    }
+    submit(payload, { method: "post" });
     setModalActive(false);
     resetForm();
   };
 
   const resetForm = () => {
+    setEditingRuleId(null);
     setRuleName("");
     setDescription("");
     setPriority("50");
@@ -236,6 +312,14 @@ export default function ValidationRules() {
       </Button>
       <Button
         size="micro"
+        icon={EditIcon}
+        accessibilityLabel={`Edit rule ${rule.name}`}
+        onClick={() => handleEditRule(rule)}
+      >
+        Edit
+      </Button>
+      <Button
+        size="micro"
         tone="critical"
         icon={DeleteIcon}
         accessibilityLabel={`Delete rule ${rule.name}`}
@@ -245,20 +329,35 @@ export default function ValidationRules() {
   ]);
 
   return (
-    <Page
-      fullWidth
-      title="Validation Rules Engine"
-      subtitle="Configure audit rules, priorities, and custom required fields"
-      primaryAction={{
-        content: "Add New Audit Rule",
-        icon: PlusIcon,
-        disabled: !isCustomRulesAllowed,
-        onClick: () => setModalActive(true),
-      }}
-    >
-      <Layout>
-        <Layout.Section>
-          <BlockStack gap="400">
+    <Page fullWidth>
+      <BlockStack gap="400">
+        <Card padding="500">
+          <InlineStack align="space-between" blockAlign="center">
+            <BlockStack gap="100">
+              <Text variant="headingLg" as="h1" fontWeight="bold">
+                Validation Rules Engine
+              </Text>
+              <Text variant="bodySm" tone="subdued">
+                Configure audit rules, priorities, and custom required fields
+              </Text>
+            </BlockStack>
+            <Button
+              variant="primary"
+              size="large"
+              icon={PlusIcon}
+              disabled={!isCustomRulesAllowed}
+              onClick={() => {
+                resetForm();
+                setModalActive(true);
+              }}
+            >
+              Add New Audit Rule
+            </Button>
+          </InlineStack>
+        </Card>
+        <Layout>
+          <Layout.Section>
+            <BlockStack gap="400">
             {!isCustomRulesAllowed && (
               <Banner tone="warning" title="Plan Upgrade Required for Custom Rules">
                 <p>{upgradeMessages.customRules}</p>
@@ -278,23 +377,26 @@ export default function ValidationRules() {
             </Banner>
 
             <Card padding="0">
-              <DataTable
-                columnContentTypes={["text", "text", "text", "text", "text", "text"]}
-                headings={["Priority", "Rule Name", "Scope", "Requirements", "Status", "Actions"]}
-                rows={rows}
-              />
+              <Box overflowX="auto">
+                <DataTable
+                  columnContentTypes={["text", "text", "text", "text", "text", "text"]}
+                  headings={["Priority", "Rule Name", "Scope", "Requirements", "Status", "Actions"]}
+                  rows={rows}
+                />
+              </Box>
             </Card>
           </BlockStack>
         </Layout.Section>
       </Layout>
+    </BlockStack>
 
       {/* Modal for adding rule */}
       <Modal
         open={modalActive}
         onClose={() => setModalActive(false)}
-        title="Create Custom Validation Rule"
+        title={editingRuleId ? "Edit Custom Validation Rule" : "Create Custom Validation Rule"}
         primaryAction={{
-          content: "Save Rule",
+          content: editingRuleId ? "Update Rule" : "Save Rule",
           onClick: handleSaveRule,
           loading: isLoading,
           disabled: !ruleName.trim() || (scopeType !== "ALL" && !scopeValue.trim()),

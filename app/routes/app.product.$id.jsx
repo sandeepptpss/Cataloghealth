@@ -315,29 +315,36 @@ export default function ProductHealthDetail() {
   const shopifyAdminUrl = rawShopifyId ? `https://admin.shopify.com/store/${shopDomainPrefix}/products/${rawShopifyId}` : null;
 
   return (
-    <Page
-      fullWidth
-      title={product.title}
-      subtitle={`Vendor: ${product.vendor || 'N/A'} • Type: ${product.productType || 'N/A'} • Status: ${product.status}`}
-      backAction={{ content: "Dashboard", url: "/app" }}
-      primaryAction={{
-        content: "Rescan Product",
-        icon: RefreshIcon,
-        loading: isLoading,
-        onClick: handleRescan,
-      }}
-      secondaryActions={
-        shopifyAdminUrl
-          ? [
-              {
-                content: "Edit in Shopify Admin",
-                url: shopifyAdminUrl,
-                external: true,
-              },
-            ]
-          : []
-      }
-    >
+    <Page fullWidth backAction={{ content: "Dashboard", url: "/app" }}>
+      <BlockStack gap="500">
+        <Card padding="500">
+          <InlineStack align="space-between" blockAlign="center">
+            <BlockStack gap="100">
+              <Text variant="headingLg" as="h1" fontWeight="bold">
+                {product.title}
+              </Text>
+              <Text variant="bodySm" tone="subdued">
+                {`Vendor: ${product.vendor || 'N/A'} • Type: ${product.productType || 'N/A'} • Status: ${product.status}`}
+              </Text>
+            </BlockStack>
+            <InlineStack gap="200">
+              {shopifyAdminUrl && (
+                <Button url={shopifyAdminUrl} external size="large">
+                  Edit in Shopify Admin
+                </Button>
+              )}
+              <Button
+                variant="primary"
+                size="large"
+                icon={RefreshIcon}
+                loading={isLoading}
+                onClick={handleRescan}
+              >
+                Rescan Product
+              </Button>
+            </InlineStack>
+          </InlineStack>
+        </Card>
       <Layout>
         <Layout.Section variant="oneThird">
           <Card padding="500">
@@ -383,11 +390,13 @@ export default function ProductHealthDetail() {
                 </Text>
               </Box>
             ) : (
-              <DataTable
-                columnContentTypes={["text", "text", "text", "text"]}
-                headings={["Severity", "Issue & Description", "Status", "Actions"]}
-                rows={issueRows}
-              />
+              <Box overflowX="auto">
+                <DataTable
+                  columnContentTypes={["text", "text", "text", "text"]}
+                  headings={["Severity", "Issue & Description", "Status", "Actions"]}
+                  rows={issueRows}
+                />
+              </Box>
             )}
           </Card>
         </Layout.Section>
@@ -400,14 +409,17 @@ export default function ProductHealthDetail() {
               </Text>
             </Box>
             <Divider />
-            <DataTable
-              columnContentTypes={variantColumns}
-              headings={variantHeadings}
-              rows={variantRows}
-            />
+            <Box overflowX="auto">
+              <DataTable
+                columnContentTypes={variantColumns}
+                headings={variantHeadings}
+                rows={variantRows}
+              />
+            </Box>
           </Card>
         </Layout.Section>
       </Layout>
+    </BlockStack>
     </Page>
   );
 }

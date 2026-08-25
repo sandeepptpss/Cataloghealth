@@ -5,6 +5,7 @@ import {
   useNavigation,
   useSearchParams,
   useNavigate,
+  useRevalidator,
   Link,
 } from "react-router";
 import {
@@ -318,6 +319,7 @@ export default function Dashboard() {
     pageSize,
   } = useLoaderData();
   const navigate = useNavigate();
+  const revalidator = useRevalidator();
   const actionData = useActionData();
   const activeTab = TABS.find((t) => t.id === tabId) || TABS[0];
 
@@ -347,17 +349,20 @@ export default function Dashboard() {
     return () => clearTimeout(timer);
   }, [searchInput, query, searchParams, setSearchParams]);
 
-  // Auto-poll loader data every 2.5 seconds while catalog scan is running in background
+  const isScanning = (queue?.PENDING || 0) > 0 || (queue?.PROCESSING || 0) > 0;
+
+  // Auto-poll loader data silently without scrolling/jumping while scan is running in background
   useEffect(() => {
-    const isScanning = queue.PENDING > 0 || queue.PROCESSING > 0 || lastScan?.status === "IN_PROGRESS";
     if (!isScanning) return;
 
     const interval = setInterval(() => {
-      navigate(".", { replace: true, preventScrollReset: true });
-    }, 2500);
+      if (revalidator.state === "idle") {
+        revalidator.revalidate();
+      }
+    }, 3000);
 
     return () => clearInterval(interval);
-  }, [queue.PENDING, queue.PROCESSING, lastScan?.status, navigate]);
+  }, [isScanning, revalidator]);
 
   const updateParams = useCallback(
     (changes) => {
@@ -584,19 +589,30 @@ export default function Dashboard() {
   const totalPages = Math.max(1, Math.ceil(filteredCount / pageSize));
 
   return (
-    <Page
-      fullWidth
-      title="Catalog Health Monitor"
-      subtitle="Automated product catalog audits, quality metrics & issue tracking"
-      primaryAction={{
-        content: scanRunning ? "Scan in progress..." : "Run Full Catalog Scan",
-        icon: RefreshIcon,
-        loading: isLoading,
-        disabled: scanRunning,
-        onClick: handleRunScan,
-      }}
-    >
+    <Page fullWidth>
       <BlockStack gap="500">
+        <Card padding="500">
+          <InlineStack align="space-between" blockAlign="center">
+            <BlockStack gap="100">
+              <Text variant="headingLg" as="h1" fontWeight="bold">
+                Catalog Health Monitor
+              </Text>
+              <Text variant="bodySm" tone="subdued">
+                Automated product catalog audits, quality metrics & issue tracking
+              </Text>
+            </BlockStack>
+            <Button
+              variant="primary"
+              size="large"
+              icon={RefreshIcon}
+              loading={isLoading}
+              disabled={scanRunning}
+              onClick={handleRunScan}
+            >
+              {scanRunning ? "Scan in progress..." : "Run Full Catalog Scan"}
+            </Button>
+          </InlineStack>
+        </Card>
         {actionData?.error && (
           <Banner tone="warning" title="Action not completed">
             <p>{actionData.error}</p>
@@ -730,7 +746,7 @@ export default function Dashboard() {
                 <Text variant="headingMd" as="h3" fontWeight="bold">
                   Catalog Overview Metrics
                 </Text>
-                <InlineStack gap="300" wrap={false} align="space-between">
+                <InlineStack gap="300" wrap align="space-between">
                   <Box
                     padding="300"
                     borderRadius="300"
@@ -1086,24 +1102,26 @@ export default function Dashboard() {
                   </Box>
                 ) : (
                   <BlockStack gap="400">
-                    <DataTable
-                      columnContentTypes={["text", "text", "text", "text", "text", "text"]}
-                      headings={[
-                        <Checkbox
-                          key="select-all"
-                          labelHidden
-                          label="Select all issues on page"
-                          checked={issues.length > 0 && selectedIssueIds.length === issues.length}
-                          onChange={handleToggleSelectAll}
-                        />,
-                        "Severity",
-                        "Issue Title",
-                        "Product",
-                        "Status",
-                        "Actions",
-                      ]}
-                      rows={issueRows}
-                    />
+                    <Box overflowX="auto">
+                      <DataTable
+                        columnContentTypes={["text", "text", "text", "text", "text", "text"]}
+                        headings={[
+                          <Checkbox
+                            key="select-all"
+                            labelHidden
+                            label="Select all issues on page"
+                            checked={issues.length > 0 && selectedIssueIds.length === issues.length}
+                            onChange={handleToggleSelectAll}
+                          />,
+                          "Severity",
+                          "Issue Title",
+                          "Product",
+                          "Status",
+                          "Actions",
+                        ]}
+                        rows={issueRows}
+                      />
+                    </Box>
                     <Box paddingBlockStart="300" paddingBlockEnd="100">
                       <Divider />
                       <Box paddingBlockStart="300">

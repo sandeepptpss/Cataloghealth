@@ -20,6 +20,8 @@ import {
   Tabs,
   ProgressBar,
   Select,
+  Modal,
+  Pagination,
 } from "@shopify/polaris";
 import {
   CheckCircleIcon,
@@ -248,6 +250,10 @@ export default function AdminDashboard() {
   const [planFilter, setPlanFilter] = useState("all");
   const [healthFilter, setHealthFilter] = useState("all");
 
+  // Pagination state (handles 100+ stores cleanly without UI jumping)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
   // Detailed Merchant view control
   const [expandedStoreId, setExpandedStoreId] = useState(null);
   const [feedbackMessage, setFeedbackMessage] = useState(null);
@@ -405,6 +411,18 @@ export default function AdminDashboard() {
     return matchesSearch && matchesPlan && matchesHealth;
   });
 
+  // Reset to page 1 whenever filters or search query change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, planFilter, healthFilter]);
+
+  const totalPages = Math.ceil(filteredStores.length / pageSize) || 1;
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedStores = filteredStores.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize
+  );
+
   const mainTabs = [
     {
       id: "merchants-tab",
@@ -423,7 +441,7 @@ export default function AdminDashboard() {
     },
   ];
 
-  const merchantTableRows = filteredStores.map((st) => {
+  const merchantTableRows = paginatedStores.map((st) => {
     const openIssues = (st.issues || []).length;
     const criticalIssues = (st.issues || []).filter((i) => i.severity === "CRITICAL").length;
     const isUpdatingThisStore =
@@ -536,27 +554,17 @@ export default function AdminDashboard() {
 
       // Actions Column
       <div key={`actions-${st.id}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "8px" }}>
-        <button
-          type="button"
+        <Button
+          size="micro"
+          variant={isExpanded ? "primary" : "secondary"}
+          icon={StoreIcon}
           onClick={(e) => {
             e.stopPropagation();
-            setExpandedStoreId((prev) => (prev === st.id ? null : st.id));
-          }}
-          style={{
-            cursor: "pointer",
-            padding: "6px 14px",
-            fontSize: "12px",
-            fontWeight: "600",
-            borderRadius: "6px",
-            border: isExpanded ? "1px solid #008060" : "1px solid #c9cccf",
-            backgroundColor: isExpanded ? "#008060" : "#ffffff",
-            color: isExpanded ? "#ffffff" : "#202223",
-            boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
-            transition: "all 0.15s ease-in-out",
+            setExpandedStoreId(st.id);
           }}
         >
-          {isExpanded ? "Close Controls" : "Inspect Store"}
-        </button>
+          {isExpanded ? "Inspecting" : "Inspect Store"}
+        </Button>
       </div>,
     ];
   });
@@ -857,179 +865,237 @@ export default function AdminDashboard() {
                   </BlockStack>
                 </Box>
 
-                {/* Inline Expanded Merchant Inspection & Control Panel Card */}
-                {expandedStore && (
-                  <Box
-                    padding="500"
-                    borderRadius="400"
-                    background="bg-surface-secondary"
-                    shadow="300"
-                    borderWidth="050"
-                    borderColor="border-success"
-                  >
-                    <BlockStack gap="400">
-                      <InlineStack align="space-between" blockAlign="center">
-                        <InlineStack gap="200" blockAlign="center">
-                          <Icon source={StoreIcon} tone="success" />
-                          <Text variant="headingMd" as="h3" fontWeight="bold">
-                            Store Inspection & Plan Controls — {expandedStore.shopDomain}
-                          </Text>
-                        </InlineStack>
-                        <InlineStack gap="200" blockAlign="center">
-                          <Badge tone={planBadgeTone(expandedStore.planId)}>
-                            {`${planName(expandedStore.planId).toUpperCase()} PLAN`}
-                          </Badge>
-                          <Button
-                            size="micro"
-                            icon={XIcon}
-                            accessibilityLabel="Close store details"
-                            onClick={() => setExpandedStoreId(null)}
-                          />
-                        </InlineStack>
-                      </InlineStack>
-
-                      <Divider />
-
-                      {/* Interactive Plan Switcher Hub */}
-                      <Card padding="400">
-                        <BlockStack gap="300">
-                          <Text variant="headingSm" as="h4" fontWeight="bold">
-                            Quick Plan Upgrade / Downgrade Switcher
-                          </Text>
-                          <Text variant="bodySm" tone="subdued">
-                            Click any tier below to immediately update this merchant store&apos;s subscription plan:
-                          </Text>
-                          <InlineStack gap="300" wrap>
-                            {[
-                              { id: "free", name: "Starter Free", price: "$0/mo" },
-                              { id: "growth", name: "Growth Plan", price: "$4.99/mo" },
-                              { id: "pro", name: "Pro Advanced", price: "$9.99/mo" },
-                              { id: "enterprise", name: "Plus Enterprise", price: "$19.99/mo" },
-                            ].map((tier) => {
-                              const isActive = expandedStore.planId === tier.id;
-                              return (
-                                <Button
-                                  key={tier.id}
-                                  variant={isActive ? "primary" : "secondary"}
-                                  onClick={() => handleUpdateStorePlan(expandedStore.id, tier.id)}
-                                  disabled={isActive}
+                {/* User-Friendly Inspect Store Modal Overlay */}
+                <Modal
+                  open={Boolean(expandedStore)}
+                  onClose={() => setExpandedStoreId(null)}
+                  title={`Store Inspection Controls — ${expandedStore?.shopDomain || ""}`}
+                  primaryAction={{
+                    content: "Close Controls",
+                    onClick: () => setExpandedStoreId(null),
+                  }}
+                  large
+                >
+                  <Modal.Section>
+                    {expandedStore && (
+                      <BlockStack gap="400">
+                        {/* Top Summary Banner */}
+                        <Box
+                          padding="400"
+                          background="bg-surface-secondary"
+                          borderRadius="300"
+                          style={{ border: "1px solid #e1e3e5" }}
+                        >
+                          <BlockStack gap="300">
+                            <InlineStack align="space-between" blockAlign="center" wrap gap="200">
+                              <InlineStack gap="200" blockAlign="center">
+                                <Box
+                                  padding="200"
+                                  borderRadius="200"
+                                  background="bg-surface-success-subdued"
                                 >
-                                  {isActive ? `${tier.name} (${tier.price}) - ACTIVE` : `Switch to ${tier.name} (${tier.price})`}
-                                </Button>
-                              );
-                            })}
-                          </InlineStack>
-                        </BlockStack>
-                      </Card>
+                                  <Icon source={StoreIcon} tone="success" />
+                                </Box>
+                                <BlockStack gap="050">
+                                  <Text variant="headingMd" as="h3" fontWeight="bold">
+                                    {expandedStore.shopDomain}
+                                  </Text>
+                                  <Text variant="bodyXs" tone="subdued">
+                                    Admin: {expandedStore.adminEmail || "sandeepptpss@gmail.com"}
+                                  </Text>
+                                </BlockStack>
+                              </InlineStack>
 
-                      {/* Merchant-Specific Promotional Offer & Trial Override Card */}
-                      <Card padding="400">
-                        <BlockStack gap="300">
-                          <InlineStack align="space-between" blockAlign="center">
+                              <InlineStack gap="200" blockAlign="center">
+                                <Badge tone={planBadgeTone(expandedStore.planId)}>
+                                  {`${planName(expandedStore.planId).toUpperCase()} PLAN`}
+                                </Badge>
+                                {expandedStore.offerTag && (
+                                  <Badge tone="warning">{`PROMO: ${expandedStore.offerTag}`}</Badge>
+                                )}
+                              </InlineStack>
+                            </InlineStack>
+
+                            <Divider />
+
+                            <Grid>
+                              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}>
+                                <BlockStack gap="050">
+                                  <Text variant="bodyXs" tone="subdued" fontWeight="bold">CATALOG HEALTH</Text>
+                                  <Text variant="bodySm" fontWeight="bold" tone={getHealthTone(expandedStore.healthScore ?? 100)}>
+                                    {(expandedStore.healthScore ?? 100).toFixed(1)}% ({ (expandedStore.healthScore ?? 100) >= 85 ? "Healthy" : "Needs Review" })
+                                  </Text>
+                                </BlockStack>
+                              </Grid.Cell>
+                              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}>
+                                <BlockStack gap="050">
+                                  <Text variant="bodyXs" tone="subdued" fontWeight="bold">MONITORED PRODUCTS</Text>
+                                  <Text variant="bodySm" fontWeight="bold">
+                                    {(expandedStore._count?.products || 0).toLocaleString()} Products
+                                  </Text>
+                                </BlockStack>
+                              </Grid.Cell>
+                              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}>
+                                <BlockStack gap="050">
+                                  <Text variant="bodyXs" tone="subdued" fontWeight="bold">OPEN ISSUES</Text>
+                                  <Text variant="bodySm" fontWeight="bold" tone={(expandedStore.issues || []).length > 0 ? "critical" : "success"}>
+                                    {(expandedStore.issues || []).length} Open
+                                  </Text>
+                                </BlockStack>
+                              </Grid.Cell>
+                              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}>
+                                <BlockStack gap="050">
+                                  <Text variant="bodyXs" tone="subdued" fontWeight="bold">INSTALLED</Text>
+                                  <Text variant="bodySm" fontWeight="bold">
+                                    {new Date(expandedStore.installedAt).toLocaleDateString()}
+                                  </Text>
+                                </BlockStack>
+                              </Grid.Cell>
+                            </Grid>
+                          </BlockStack>
+                        </Box>
+
+                        {/* Subscription Plan Switcher Card */}
+                        <Card padding="400">
+                          <BlockStack gap="300">
                             <BlockStack gap="050">
                               <Text variant="headingSm" as="h4" fontWeight="bold">
-                                Merchant-Specific Special Offers & Custom Promotions
+                                Subscription Plan Controls
                               </Text>
                               <Text variant="bodySm" tone="subdued">
-                                Assign individual merchant deals (e.g. 2 Months Free Pro for First 20 Users, 3 Months Free Trial, or Custom Discounts).
+                                Click any tier below to update this merchant store&apos;s subscription plan:
                               </Text>
                             </BlockStack>
-                            {expandedStore.offerTag && (
-                              <Badge tone="warning">
-                                {`ACTIVE PROMO: ${expandedStore.offerTag}`}
-                              </Badge>
-                            )}
-                          </InlineStack>
+                            <InlineStack gap="200" wrap>
+                              {[
+                                { id: "free", name: "Starter Free", price: "$0/mo" },
+                                { id: "growth", name: "Growth Plan", price: "$4.99/mo" },
+                                { id: "pro", name: "Pro Advanced", price: "$9.99/mo" },
+                                { id: "enterprise", name: "Plus Enterprise", price: "$19.99/mo" },
+                              ].map((tier) => {
+                                const isActive = expandedStore.planId === tier.id;
+                                return (
+                                  <Button
+                                    key={tier.id}
+                                    variant={isActive ? "primary" : "secondary"}
+                                    onClick={() => handleUpdateStorePlan(expandedStore.id, tier.id)}
+                                    disabled={isActive}
+                                  >
+                                    {isActive ? `${tier.name} (${tier.price}) — ACTIVE` : `Switch to ${tier.name} (${tier.price})`}
+                                  </Button>
+                                );
+                              })}
+                            </InlineStack>
+                          </BlockStack>
+                        </Card>
 
-                          <Divider />
+                        {/* Special Offers & Custom Promotions Card */}
+                        <Card padding="400">
+                          <BlockStack gap="300">
+                            <InlineStack align="space-between" blockAlign="center" wrap gap="200">
+                              <BlockStack gap="050">
+                                <Text variant="headingSm" as="h4" fontWeight="bold">
+                                  Special Offers & Custom Promotions
+                                </Text>
+                                <Text variant="bodySm" tone="subdued">
+                                  Assign individual merchant deals or promotional trial overrides:
+                                </Text>
+                              </BlockStack>
+                              {expandedStore.offerTag && (
+                                <Badge tone="warning">
+                                  {`ACTIVE PROMO: ${expandedStore.offerTag}`}
+                                </Badge>
+                              )}
+                            </InlineStack>
 
-                          <Text variant="bodySm" fontWeight="bold">
-                            Quick Merchant Offer Presets:
-                          </Text>
-                          <InlineStack gap="200" wrap>
-                            <Button
-                              variant="secondary"
-                              onClick={() => handleUpdateStoreOffer(expandedStore.id, "2 Months Free Pro", "pro")}
-                            >
-                              First 20 Users: 2 Months Free Pro
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              onClick={() => handleUpdateStoreOffer(expandedStore.id, "3 Months Free Pro", "pro")}
-                            >
-                              Early Adopter: 3 Months Free Pro
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              onClick={() => handleUpdateStoreOffer(expandedStore.id, "3 Months Free Access", "growth")}
-                            >
-                              Trial Extension: 3 Months Free Access
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              onClick={() => handleUpdateStoreOffer(expandedStore.id, "50% VIP Merchant Offer")}
-                            >
-                              50% VIP Merchant Offer
-                            </Button>
-                            {expandedStore.offerTag && (
+                            <Divider />
+
+                            <InlineStack gap="200" wrap>
                               <Button
-                                tone="critical"
-                                variant="tertiary"
-                                onClick={() => handleUpdateStoreOffer(expandedStore.id, "")}
+                                variant="secondary"
+                                onClick={() => handleUpdateStoreOffer(expandedStore.id, "2 Months Free Pro", "pro")}
                               >
-                                Clear Active Special Offer
+                                First 20 Users: 2 Months Free Pro
                               </Button>
-                            )}
-                          </InlineStack>
-                        </BlockStack>
-                      </Card>
+                              <Button
+                                variant="secondary"
+                                onClick={() => handleUpdateStoreOffer(expandedStore.id, "3 Months Free Pro", "pro")}
+                              >
+                                Early Adopter: 3 Months Free Pro
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                onClick={() => handleUpdateStoreOffer(expandedStore.id, "3 Months Free Access", "growth")}
+                              >
+                                Trial Extension: 3 Months Free Access
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                onClick={() => handleUpdateStoreOffer(expandedStore.id, "50% VIP Merchant Offer")}
+                              >
+                                50% VIP Merchant Offer
+                              </Button>
+                              {expandedStore.offerTag && (
+                                <Button
+                                  tone="critical"
+                                  variant="tertiary"
+                                  onClick={() => handleUpdateStoreOffer(expandedStore.id, "")}
+                                >
+                                  Clear Active Offer
+                                </Button>
+                              )}
+                            </InlineStack>
+                          </BlockStack>
+                        </Card>
 
-                      {/* Store Metrics Summary Grid */}
-                      <Grid>
-                        <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}>
-                          <BlockStack gap="100">
-                            <Text variant="bodySm" tone="subdued">
-                              Database Store ID
+                        {/* Account & Store Details (2-Column Spacious Grid) */}
+                        <Card padding="400">
+                          <BlockStack gap="300">
+                            <Text variant="headingSm" as="h4" fontWeight="bold">
+                              Account & Store Details
                             </Text>
-                            <Text variant="bodySm" fontWeight="bold">
-                              <code>{expandedStore.id}</code>
-                            </Text>
+                            <Divider />
+                            <Grid gap={{ xs: "300", sm: "300", md: "400", lg: "400", xl: "400" }}>
+                              <Grid.Cell columnSpan={{ xs: 12, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                                <BlockStack gap="300">
+                                  <BlockStack gap="050">
+                                    <Text variant="bodyXs" tone="subdued" fontWeight="bold">SHOPIFY DOMAIN</Text>
+                                    <Text variant="bodySm" fontWeight="bold" style={{ wordBreak: "break-all" }}>
+                                      {expandedStore.shopDomain}
+                                    </Text>
+                                  </BlockStack>
+                                  <BlockStack gap="050">
+                                    <Text variant="bodyXs" tone="subdued" fontWeight="bold">ADMIN CONTACT EMAIL</Text>
+                                    <Text variant="bodySm" fontWeight="bold" style={{ wordBreak: "break-all" }}>
+                                      {expandedStore.adminEmail || "sandeepptpss@gmail.com"}
+                                    </Text>
+                                  </BlockStack>
+                                </BlockStack>
+                              </Grid.Cell>
+
+                              <Grid.Cell columnSpan={{ xs: 12, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                                <BlockStack gap="300">
+                                  <BlockStack gap="050">
+                                    <Text variant="bodyXs" tone="subdued" fontWeight="bold">DATABASE STORE ID</Text>
+                                    <Text variant="bodySm" fontWeight="bold" style={{ wordBreak: "break-all", fontFamily: "monospace" }}>
+                                      {expandedStore.id}
+                                    </Text>
+                                  </BlockStack>
+                                  <BlockStack gap="050">
+                                    <Text variant="bodyXs" tone="subdued" fontWeight="bold">INSTALLATION DATE</Text>
+                                    <Text variant="bodySm" fontWeight="bold">
+                                      {new Date(expandedStore.installedAt).toLocaleString()}
+                                    </Text>
+                                  </BlockStack>
+                                </BlockStack>
+                              </Grid.Cell>
+                            </Grid>
                           </BlockStack>
-                        </Grid.Cell>
-                        <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}>
-                          <BlockStack gap="100">
-                            <Text variant="bodySm" tone="subdued">
-                              Installation Date
-                            </Text>
-                            <Text variant="bodyMd" fontWeight="bold">
-                              {new Date(expandedStore.installedAt).toLocaleString()}
-                            </Text>
-                          </BlockStack>
-                        </Grid.Cell>
-                        <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}>
-                          <BlockStack gap="100">
-                            <Text variant="bodySm" tone="subdued">
-                              Admin Contact Email
-                            </Text>
-                            <Text variant="bodyMd" fontWeight="bold">
-                              {expandedStore.adminEmail || "sandeepptpss@gmail.com"}
-                            </Text>
-                          </BlockStack>
-                        </Grid.Cell>
-                        <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 3, lg: 3, xl: 3 }}>
-                          <BlockStack gap="100">
-                            <Text variant="bodySm" tone="subdued">
-                              Synced Products Count
-                            </Text>
-                            <Text variant="headingLg" as="p" fontWeight="bold">
-                              {(expandedStore._count?.products || 0).toLocaleString()} Products
-                            </Text>
-                          </BlockStack>
-                        </Grid.Cell>
-                      </Grid>
-                    </BlockStack>
-                  </Box>
-                )}
+                        </Card>
+                      </BlockStack>
+                    )}
+                  </Modal.Section>
+                </Modal>
 
                 {/* Merchant DataTable */}
                 {filteredStores.length === 0 ? (
@@ -1043,19 +1109,64 @@ export default function AdminDashboard() {
                     </BlockStack>
                   </Box>
                 ) : (
-                  <DataTable
-                    columnContentTypes={["text", "text", "text", "numeric", "text", "text", "text"]}
-                    headings={[
-                      "Merchant Store",
-                      "Subscription Plan",
-                      "Catalog Health",
-                      "Products",
-                      "Open Issues",
-                      "Installed Date",
-                      "Actions",
-                    ]}
-                    rows={merchantTableRows}
-                  />
+                  <BlockStack gap="400">
+                    <Box overflowX="auto">
+                      <DataTable
+                        columnContentTypes={["text", "text", "text", "numeric", "text", "text", "text"]}
+                        headings={[
+                          "Merchant Store",
+                          "Subscription Plan",
+                          "Catalog Health",
+                          "Products",
+                          "Open Issues",
+                          "Installed Date",
+                          "Actions",
+                        ]}
+                        rows={merchantTableRows}
+                      />
+                    </Box>
+
+                    {/* Pagination & Page Size Control Footer (Only rendered when total stores > 10) */}
+                    {filteredStores.length > 10 && (
+                      <Box paddingBlockStart="300">
+                        <InlineStack align="space-between" blockAlign="center" wrap gap="300">
+                          <InlineStack gap="200" blockAlign="center">
+                            <Text variant="bodySm" tone="subdued">
+                              Showing <strong>{(safeCurrentPage - 1) * pageSize + 1}</strong>–
+                              <strong>{Math.min(safeCurrentPage * pageSize, filteredStores.length)}</strong> of{" "}
+                              <strong>{filteredStores.length}</strong> stores
+                            </Text>
+                            <div style={{ width: "120px" }}>
+                              <Select
+                                label="Page size"
+                                labelHidden
+                                options={[
+                                  { label: "10 / page", value: "10" },
+                                  { label: "25 / page", value: "25" },
+                                  { label: "50 / page", value: "50" },
+                                  { label: "100 / page", value: "100" },
+                                ]}
+                                value={String(pageSize)}
+                                onChange={(val) => {
+                                  setPageSize(Number(val));
+                                  setCurrentPage(1);
+                                }}
+                              />
+                            </div>
+                          </InlineStack>
+
+                          {totalPages > 1 && (
+                            <Pagination
+                              hasPrevious={safeCurrentPage > 1}
+                              onPrevious={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                              hasNext={safeCurrentPage < totalPages}
+                              onNext={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                            />
+                          )}
+                        </InlineStack>
+                      </Box>
+                    )}
+                  </BlockStack>
                 )}
               </BlockStack>
             )}
