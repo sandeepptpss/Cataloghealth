@@ -88,17 +88,17 @@ export const loader = async ({ request }) => {
 
   const searchFilter = query
     ? {
-        OR: [
-          { title: { contains: query } },
-          { description: { contains: query } },
-          { fieldName: { contains: query } },
-          { issueType: { contains: query } },
-          ...(severityMatches.length > 0 ? [{ severity: { in: severityMatches } }] : []),
-          { product: { title: { contains: query } } },
-          { variant: { sku: { contains: query } } },
-          { variant: { title: { contains: query } } },
-        ],
-      }
+      OR: [
+        { title: { contains: query } },
+        { description: { contains: query } },
+        { fieldName: { contains: query } },
+        { issueType: { contains: query } },
+        ...(severityMatches.length > 0 ? [{ severity: { in: severityMatches } }] : []),
+        { product: { title: { contains: query } } },
+        { variant: { sku: { contains: query } } },
+        { variant: { title: { contains: query } } },
+      ],
+    }
     : {};
 
   const issueWhere = { storeId: store.id, ...activeTab.where, ...searchFilter };
@@ -486,8 +486,8 @@ export default function Dashboard() {
           issue.severity === "CRITICAL"
             ? "critical"
             : issue.severity === "WARNING"
-            ? "warning"
-            : "info"
+              ? "warning"
+              : "info"
         }
       >
         {issue.severity}
@@ -543,8 +543,8 @@ export default function Dashboard() {
         issue.status === "OPEN"
           ? "attention"
           : issue.status === "RESOLVED"
-          ? "success"
-          : undefined
+            ? "success"
+            : undefined
       }
     >
       {issue.status}
@@ -589,7 +589,7 @@ export default function Dashboard() {
   const totalPages = Math.max(1, Math.ceil(filteredCount / pageSize));
 
   return (
-    <Page fullWidth>
+    <Page title="Catalog Health Monitor" fullWidth>
       <BlockStack gap="500">
         <Card padding="500">
           <InlineStack align="space-between" blockAlign="center">
@@ -722,8 +722,8 @@ export default function Dashboard() {
                     {store.healthScore >= 85
                       ? "Excellent Catalog Quality"
                       : store.healthScore >= 60
-                      ? "Needs Attention"
-                      : "Critical Fixes Required"}
+                        ? "Needs Attention"
+                        : "Critical Fixes Required"}
                   </Text>
                 </div>
                 <ProgressBar
@@ -732,8 +732,8 @@ export default function Dashboard() {
                     store.healthScore >= 85
                       ? "success"
                       : store.healthScore >= 60
-                      ? "highlight"
-                      : "critical"
+                        ? "highlight"
+                        : "critical"
                   }
                 />
               </BlockStack>

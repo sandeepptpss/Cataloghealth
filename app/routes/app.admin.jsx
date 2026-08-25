@@ -338,10 +338,10 @@ export default function AdminDashboard() {
     planId === "enterprise"
       ? "success"
       : planId === "pro"
-      ? "attention"
-      : planId === "growth"
-      ? "highlight"
-      : "subdued";
+        ? "attention"
+        : planId === "growth"
+          ? "highlight"
+          : "subdued";
 
   const getHealthTone = (score) => {
     if (score >= 85) return "success";
@@ -379,10 +379,10 @@ export default function AdminDashboard() {
       prevStores.map((st) =>
         st.id === storeId
           ? {
-              ...st,
-              offerTag: cleanOffer || null,
-              ...(cleanPlan ? { plan: cleanPlan, planId: cleanPlan } : {}),
-            }
+            ...st,
+            offerTag: cleanOffer || null,
+            ...(cleanPlan ? { plan: cleanPlan, planId: cleanPlan } : {}),
+          }
           : st
       )
     );
@@ -572,7 +572,7 @@ export default function AdminDashboard() {
   const expandedStore = localStores.find((s) => s.id === expandedStoreId);
 
   return (
-    <Page fullWidth>
+    <Page title="Master Admin Portal" fullWidth>
       <BlockStack gap="500">
         {/* Executive Clean Polaris Header Banner */}
         <Box
@@ -923,7 +923,7 @@ export default function AdminDashboard() {
                                 <BlockStack gap="050">
                                   <Text variant="bodyXs" tone="subdued" fontWeight="bold">CATALOG HEALTH</Text>
                                   <Text variant="bodySm" fontWeight="bold" tone={getHealthTone(expandedStore.healthScore ?? 100)}>
-                                    {(expandedStore.healthScore ?? 100).toFixed(1)}% ({ (expandedStore.healthScore ?? 100) >= 85 ? "Healthy" : "Needs Review" })
+                                    {(expandedStore.healthScore ?? 100).toFixed(1)}% ({(expandedStore.healthScore ?? 100) >= 85 ? "Healthy" : "Needs Review"})
                                   </Text>
                                 </BlockStack>
                               </Grid.Cell>

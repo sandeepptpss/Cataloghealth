@@ -127,10 +127,10 @@ export default function CatalogScans() {
           scan.status === "COMPLETED"
             ? "success"
             : scan.status === "IN_PROGRESS"
-            ? "attention"
-            : scan.status === "QUEUED"
-            ? "info"
-            : "critical"
+              ? "attention"
+              : scan.status === "QUEUED"
+                ? "info"
+                : "critical"
         }
       >
         {scan.status}
@@ -181,8 +181,8 @@ export default function CatalogScans() {
         job.status === "PROCESSING"
           ? "attention"
           : job.status === "FAILED"
-          ? "critical"
-          : undefined
+            ? "critical"
+            : undefined
       }
     >
       {job.status}
@@ -199,7 +199,7 @@ export default function CatalogScans() {
   ]);
 
   return (
-    <Page fullWidth>
+    <Page title="Catalog Audit Scan History & Logs" fullWidth>
       <Box paddingBlockEnd="1000">
         <Layout>
           <Layout.Section>
@@ -239,13 +239,11 @@ export default function CatalogScans() {
 
               <Banner tone="info" title={`${planConfig.name} plan coverage`}>
                 <p>
-                  {`Audit limit: ${planConfig.maxProductsLabel}. On-demand scans: ${
-                    scanAllowance.limit === null
+                  {`Audit limit: ${planConfig.maxProductsLabel}. On-demand scans: ${scanAllowance.limit === null
                       ? "unlimited"
                       : `${scanAllowance.remaining} of ${scanAllowance.limit} left in the current 7 days`
-                  }. Automated daily scans: ${planConfig.dailyScan ? "included" : "not included"}. Real-time webhook scans: ${
-                    planConfig.webhookScan ? "included" : "not included"
-                  }.`}
+                    }. Automated daily scans: ${planConfig.dailyScan ? "included" : "not included"}. Real-time webhook scans: ${planConfig.webhookScan ? "included" : "not included"
+                    }.`}
                 </p>
               </Banner>
 

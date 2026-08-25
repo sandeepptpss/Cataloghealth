@@ -330,7 +330,7 @@ export default function ValidationRules() {
   ]);
 
   return (
-    <Page fullWidth>
+    <Page title="Validation Rules Engine" fullWidth>
       <BlockStack gap="400">
         <Card padding="500">
           <InlineStack align="space-between" blockAlign="center">
@@ -359,37 +359,37 @@ export default function ValidationRules() {
         <Layout>
           <Layout.Section>
             <BlockStack gap="400">
-            {!isCustomRulesAllowed && (
-              <Banner tone="warning" title="Plan Upgrade Required for Custom Rules">
-                <p>{upgradeMessages.customRules}</p>
-                <p>{upgradeMessages.requiredMetafields}</p>
+              {!isCustomRulesAllowed && (
+                <Banner tone="warning" title="Plan Upgrade Required for Custom Rules">
+                  <p>{upgradeMessages.customRules}</p>
+                  <p>{upgradeMessages.requiredMetafields}</p>
+                  <p>
+                    <Link to="/app/plans" style={{ fontWeight: "bold" }}>
+                      Upgrade your subscription plan to enable custom audit rules.
+                    </Link>
+                  </p>
+                </Banner>
+              )}
+
+              <Banner tone="info">
                 <p>
-                  <Link to="/app/plans" style={{ fontWeight: "bold" }}>
-                    Upgrade your subscription plan to enable custom audit rules.
-                  </Link>
+                  Validation rules are evaluated by priority (lower number = higher priority). Specific collection or vendor rules override global rules.
                 </p>
               </Banner>
-            )}
 
-            <Banner tone="info">
-              <p>
-                Validation rules are evaluated by priority (lower number = higher priority). Specific collection or vendor rules override global rules.
-              </p>
-            </Banner>
-
-            <Card padding="0">
-              <Box overflowX="auto">
-                <DataTable
-                  columnContentTypes={["text", "text", "text", "text", "text", "text"]}
-                  headings={["Priority", "Rule Name", "Scope", "Requirements", "Status", "Actions"]}
-                  rows={rows}
-                />
-              </Box>
-            </Card>
-          </BlockStack>
-        </Layout.Section>
-      </Layout>
-    </BlockStack>
+              <Card padding="0">
+                <Box overflowX="auto">
+                  <DataTable
+                    columnContentTypes={["text", "text", "text", "text", "text", "text"]}
+                    headings={["Priority", "Rule Name", "Scope", "Requirements", "Status", "Actions"]}
+                    rows={rows}
+                  />
+                </Box>
+              </Card>
+            </BlockStack>
+          </Layout.Section>
+        </Layout>
+      </BlockStack>
 
       {/* Modal for adding rule */}
       <Modal
@@ -452,8 +452,8 @@ export default function ValidationRules() {
                   scopeType === "VENDOR"
                     ? "e.g. Apple"
                     : scopeType === "COLLECTION"
-                    ? "Collection name or handle, e.g. Electronics"
-                    : "e.g. Electronics"
+                      ? "Collection name or handle, e.g. Electronics"
+                      : "e.g. Electronics"
                 }
                 helpText={
                   scopeType === "COLLECTION"

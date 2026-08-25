@@ -318,8 +318,8 @@ export default function Plans() {
                     border: isCurrent
                       ? "2px solid var(--p-color-border-success, #008060)"
                       : plan.isPopular
-                      ? "2px solid var(--p-color-border-brand, #005bd3)"
-                      : "1px solid var(--p-color-border, #e1e3e5)",
+                        ? "2px solid var(--p-color-border-brand, #005bd3)"
+                        : "1px solid var(--p-color-border, #e1e3e5)",
                     overflow: "hidden",
                     display: "flex",
                     flexDirection: "column",
@@ -414,10 +414,10 @@ export default function Plans() {
                             {isCurrent
                               ? "Active Plan"
                               : plan.priceAmount === 0
-                              ? "Select Starter Free"
-                              : isYearly
-                              ? `Subscribe Yearly (${yearlyInfo.yearlyTotalFormatted}/yr)`
-                              : `Subscribe Monthly (${plan.price}/mo)`}
+                                ? "Select Starter Free"
+                                : isYearly
+                                  ? `Subscribe Yearly (${yearlyInfo.yearlyTotalFormatted}/yr)`
+                                  : `Subscribe Monthly (${plan.price}/mo)`}
                           </Button>
                         </Form>
                       </Box>

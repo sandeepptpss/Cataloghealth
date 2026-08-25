@@ -1,10 +1,9 @@
 /* global process */
-import { useMemo, useState, useEffect } from "react";
+import { useMemo } from "react";
 import {
   Outlet,
   useLoaderData,
   useNavigation,
-  useLocation,
   useRouteError,
   Link as ReactRouterLink,
 } from "react-router";
@@ -13,8 +12,7 @@ import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-react-ro
 import {
   AppProvider as PolarisProvider,
   Frame,
-  Spinner,
-  Text,
+  Loading,
 } from "@shopify/polaris";
 import enTranslations from "@shopify/polaris/locales/en.json";
 import { authenticate } from "../shopify.server";
@@ -32,6 +30,16 @@ export const loader = async ({ request }) => {
     isAdmin,
   };
 };
+
+export function shouldRevalidate({ currentUrl, nextUrl, formMethod, defaultShouldRevalidate }) {
+  if (formMethod && formMethod !== "GET") {
+    return true;
+  }
+  if (currentUrl.pathname === nextUrl.pathname && currentUrl.search === nextUrl.search) {
+    return false;
+  }
+  return defaultShouldRevalidate;
+}
 
 const IS_EXTERNAL_LINK_REGEX = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 
@@ -71,84 +79,22 @@ function useAppNavMenu(isAdmin) {
   );
 }
 
-function FullPageLoadingScreen({ isVisible }) {
-  if (!isVisible) return null;
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: "#f1f2f4",
-        zIndex: 999999,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <div
-        style={{
-          background: "#ffffff",
-          padding: "32px 40px",
-          borderRadius: "16px",
-          boxShadow: "0 4px 20px rgba(0, 0, 0, 0.06)",
-          border: "1px solid #e1e3e5",
-          textAlign: "center",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: "16px",
-          minWidth: "260px",
-        }}
-      >
-        <Spinner size="large" tone="primary" />
-        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          <Text variant="headingMd" as="h2" fontWeight="bold">
-            Loading Catalog Health
-          </Text>
-          <Text variant="bodySm" tone="subdued">
-            Fetching metrics & data...
-          </Text>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function App() {
   const { apiKey, isAdmin } = useLoaderData();
   const navigation = useNavigation();
-  const location = useLocation();
 
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    setIsLoading(true);
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 800);
-    return () => clearTimeout(timer);
-  }, [location.pathname, location.search]);
-
-  const showLoader = isLoading || navigation.state !== "idle";
+  const isNavigating = navigation.state !== "idle";
   const navMenu = useAppNavMenu(isAdmin);
 
   return (
     <ShopifyAppProvider embedded apiKey={apiKey}>
       <PolarisProvider i18n={enTranslations} linkComponent={PolarisLink}>
         <Frame>
+          {isNavigating && <Loading />}
           {navMenu}
-          {showLoader ? (
-            <FullPageLoadingScreen isVisible={true} />
-          ) : (
-            <div className="app-content-container">
-              <Outlet />
-            </div>
-          )}
+          <div className="app-content-container">
+            <Outlet />
+          </div>
         </Frame>
       </PolarisProvider>
     </ShopifyAppProvider>

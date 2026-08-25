@@ -1,5 +1,6 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
+import polarisStylesUrl from "@shopify/polaris/build/esm/styles.css?url";
+import polarisStylesInline from "@shopify/polaris/build/esm/styles.css?inline";
 import interLatinWoff2 from "./fonts/InterVariable-latin.woff2?url";
 
 // Polaris renders everything in Inter (--p-font-family-sans). Nothing in the document
@@ -22,8 +23,8 @@ export const links = () => [
     href: INTER_LATIN_WOFF2,
     crossOrigin: "anonymous",
   },
+  { rel: "stylesheet", href: polarisStylesUrl },
   { rel: "stylesheet", href: INTER_STYLESHEET, crossOrigin: "anonymous" },
-  { rel: "stylesheet", href: polarisStyles },
 ];
 
 const FONT_STACK =
@@ -45,6 +46,8 @@ export default function App() {
         <style
           dangerouslySetInnerHTML={{
             __html: `
+              ${polarisStylesInline || ""}
+
               @font-face {
                 font-family: "InterLatin";
                 font-style: normal;
@@ -54,6 +57,14 @@ export default function App() {
                 unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
                   U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
                   U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+              }
+
+              @font-face {
+                font-family: "Inter";
+                font-style: normal;
+                font-weight: 100 900;
+                font-display: optional;
+                src: url("${INTER_LATIN_WOFF2}") format("woff2");
               }
 
               /* Same specificity as Polaris' own declaration and later in the cascade, so
@@ -87,9 +98,12 @@ export default function App() {
                 outline: none;
               }
 
-              /* Hide Polaris Frame top bar placeholders that cause gray box rendering & page jumps */
+              /* Hide Shopify App Bridge nav menu & Polaris top bar placeholders to prevent top layout jumps */
+              ui-nav-menu {
+                display: none !important;
+              }
+
               .Polaris-Frame__Skip,
-              .Polaris-Frame__Loading,
               .Polaris-Frame__TopBar {
                 display: none !important;
                 height: 0 !important;
@@ -98,16 +112,31 @@ export default function App() {
                 margin: 0 !important;
               }
 
-              .Polaris-Frame__Main {
+              .Polaris-Frame,
+              .Polaris-Frame__Main,
+              .Polaris-Frame__Content {
                 padding-top: 0 !important;
+                margin-top: 0 !important;
               }
 
               .Polaris-Page {
                 padding-top: 16px !important;
+                margin-top: 0 !important;
               }
 
               .Polaris-Icon { display: inline-flex; width: 1.25rem; height: 1.25rem; flex-shrink: 0; vertical-align: middle; }
               .Polaris-Icon__Svg { width: 100%; height: 100%; fill: currentColor; display: block; }
+
+              @keyframes appPageFadeIn {
+                from {
+                  opacity: 0.15;
+                  transform: translateY(3px);
+                }
+                to {
+                  opacity: 1;
+                  transform: translateY(0);
+                }
+              }
 
               .app-content-container {
                 min-height: 100vh;
@@ -115,6 +144,7 @@ export default function App() {
                 max-width: 100%;
                 overflow-x: hidden;
                 box-sizing: border-box;
+                animation: appPageFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
               }
             `,
           }}

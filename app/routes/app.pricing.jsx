@@ -253,7 +253,7 @@ export default function PricingPlans() {
   ];
 
   return (
-    <Page fullWidth>
+    <Page title="Pricing Plans & Support" fullWidth>
       <BlockStack gap="5">
         <Card padding="500">
           <InlineStack align="space-between" blockAlign="center">

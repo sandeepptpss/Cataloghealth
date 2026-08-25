@@ -158,7 +158,7 @@ export default function HelpAndSupport() {
   ];
 
   return (
-    <Page fullWidth>
+    <Page title="Merchant Support & Chat Inquiry" fullWidth>
       <BlockStack gap="500">
         <Card padding="500">
           <InlineStack align="space-between" blockAlign="center">
